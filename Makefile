@@ -19,7 +19,7 @@
 ##### Global variables #####
 
 DOCKER   ?= docker
-REGISTRY ?= volcanosh
+REGISTRY ?= projecthami
 VERSION  ?= latest
 TAG_VERSION ?= 1.0.0
 
