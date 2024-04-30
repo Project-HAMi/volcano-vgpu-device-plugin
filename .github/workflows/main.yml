@@ -3,11 +3,11 @@ on:
   push:
     tags:
       - v[0-9]+.[0-9]+.[0-9]+
-    branches: [master,dev-vgpu-1219]
+    branches: [master,main,dev-vgpu-1219]
   pull_request:
-    branches: [master]
+    branches: [master,main]
   pull_request_target:
-    branches: [dev-vgpu-1219]
+    branches: [main,dev-vgpu-1219]
 
 jobs:
   build:
