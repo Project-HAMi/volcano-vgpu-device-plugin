@@ -308,6 +308,11 @@ func (m *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 		lock.ReleaseNodeLock(nodename, util.VGPUDeviceName)
 		return &pluginapi.AllocateResponse{}, err
 	}
+	if current == nil {
+		klog.Errorf("no pending pod found on node %s", nodename)
+		lock.ReleaseNodeLock(nodename, util.VGPUDeviceName)
+		return &pluginapi.AllocateResponse{}, errors.New("no pending pod found on node")
+	}
 
 	for idx := range reqs.ContainerRequests {
 		currentCtr, devreq, err := util.GetNextDeviceRequest(util.NvidiaGPUDevice, *current)
