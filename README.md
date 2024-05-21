@@ -70,6 +70,66 @@ We will be editing the docker daemon config file which is usually present at `/e
 ```
 > *if `runtimes` is not already present, head to the install page of [nvidia-docker](https://github.com/NVIDIA/nvidia-docker)*
 
+
+### Configure scheduler
+
+update the scheduler configuration:
+
+```shell script
+kubectl edit cm -n volcano-system volcano-scheduler-configmap
+```
+
+For volcano v1.9+,, use the following configMap 
+```yaml
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: volcano-scheduler-configmap
+  namespace: volcano-system
+data:
+  volcano-scheduler.conf: |
+    actions: "enqueue, allocate, backfill"
+    tiers:
+    - plugins:
+      - name: priority
+      - name: gang
+      - name: conformance
+    - plugins:
+      - name: drf
+      - name: deviceshare
+        arguments:
+          deviceshare.VGPUEnable: true # enable vgpu
+      - name: predicates
+      - name: proportion
+      - name: nodeorder
+      - name: binpack
+```
+
+For volcano v1.8.2-(v1.8.2 included), use the following configMap 
+```yaml
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: volcano-scheduler-configmap
+  namespace: volcano-system
+data:
+  volcano-scheduler.conf: |
+    actions: "enqueue, allocate, backfill"
+    tiers:
+    - plugins:
+      - name: priority
+      - name: gang
+      - name: conformance
+    - plugins:
+      - name: drf
+      - name: predicates
+        arguments:
+          predicate.VGPUEnable: true # enable vgpu
+      - name: proportion
+      - name: nodeorder
+      - name: binpack
+```
+
 ### Enabling GPU Support in Kubernetes
 
 Once you have enabled this option on *all* the GPU nodes you wish to use,
@@ -86,6 +146,40 @@ $ kubectl create -f volcano-device-plugin.yml
 ```
 
 **Note** that volcano device plugin can be configured. For example, it can specify gpu strategy by adding in the yaml file ''args: ["--gpu-strategy=number"]'' under ''image: volcanosh/volcano-device-plugin''. More configuration can be found at [volcano device plugin configuration](https://github.com/volcano-sh/devices/blob/master/doc/config.md).
+
+### Verify environment is ready
+
+Check the node status, it is ok if `volcano.sh/vgpu-number` is included in the allocatable resources.
+
+> **Note** `volcano.sh/vgpu-memory` and `volcano.sh/vgpu-cores` won't be listed in the allocatable resources, because these are more like a parameter of `volcano.sh/vgpu-number` than a seperate resource. If you wish to keep track of these field, please use volcano metrics.
+
+```shell script
+$ kubectl get node {node name} -oyaml
+...
+status:
+  addresses:
+  - address: 172.17.0.3
+    type: InternalIP
+  - address: volcano-control-plane
+    type: Hostname
+  allocatable:
+    cpu: "4"
+    ephemeral-storage: 123722704Ki
+    hugepages-1Gi: "0"
+    hugepages-2Mi: "0"
+    memory: 8174332Ki
+    pods: "110"
+    volcano.sh/gpu-number: "10"    # vGPU resource
+  capacity:
+    cpu: "4"
+    ephemeral-storage: 123722704Ki
+    hugepages-1Gi: "0"
+    hugepages-2Mi: "0"
+    memory: 8174332Ki
+    pods: "110"
+    volcano.sh/gpu-memory: "89424"
+    volcano.sh/gpu-number: "10"   # vGPU resource
+```
 
 ### Running VGPU Jobs
 
@@ -176,7 +270,6 @@ Please note that:
 - the gpu-share device plugin is alpha and is missing the following features, and will be deprecated in volcano v1.9
     - More comprehensive GPU health checking features
     - GPU cleanup features
-    - GPU hard isolation
     - ...
 
 The next sections are focused on building the device plugin and running it.
