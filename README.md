@@ -12,8 +12,7 @@ And collaborate with volcano, it is possible to enable GPU sharing.
 - [Quick Start](#quick-start)
   - [Preparing your GPU Nodes](#preparing-your-gpu-nodes)
   - [Enabling GPU Support in Kubernetes](#enabling-gpu-support-in-kubernetes)
-  - [Running GPU Sharing Jobs](#running-gpu-sharing-jobs)
-  - [Running GPU Number Jobs](#running-gpu-number-jobs)
+  - [Running vGPU Jobs](#running-vgpu-jobs)
 - [Docs](#docs)
 - [Issues and Contributing](#issues-and-contributing)
 
