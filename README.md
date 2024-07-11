@@ -140,13 +140,6 @@ VGPU:
 $ kubectl create -f volcano-vgpu-device-plugin.yml
 ```
 
-GPU-SHARE (**Will be deprecated in volcano v1.9**):
-```shell
-$ kubectl create -f volcano-device-plugin.yml
-```
-
-**Note** that volcano device plugin can be configured. For example, it can specify gpu strategy by adding in the yaml file ''args: ["--gpu-strategy=number"]'' under ''image: volcanosh/volcano-device-plugin''. More configuration can be found at [volcano device plugin configuration](https://github.com/volcano-sh/devices/blob/master/doc/config.md).
-
 ### Verify environment is ready
 
 Check the node status, it is ok if `volcano.sh/vgpu-number` is included in the allocatable resources.
@@ -200,88 +193,22 @@ spec:
       resources:
         limits:
           volcano.sh/vgpu-number: 2 # requesting 2 gpu cards
-          volcano.sh/vgpu-memory: 3000 # each vGPU uses 3G device memory
-          volcano.sh/vgpu-cores: 50 # each vGPU uses 50% core  
+          volcano.sh/vgpu-memory: 3000 # (optinal)each vGPU uses 3G device memory
+          volcano.sh/vgpu-cores: 50 # (optional)each vGPU uses 50% core  
 EOF
-```
-### Running GPU Sharing Jobs (**Will be deprecated in volcano v1.9**)
-
-NVIDIA GPUs can now be shared via container level resource requirements using the resource name volcano.sh/gpu-memory:
-
-The node resource capability and allocatable metadata will show volcano.sh/gpu-number, but user **can not** specify this resource name at the container level. This is because the device-plugin patches volcano.sh/gpu-number to show the total number of gpus, which is only used for volcano scheduler to calculate the memory for each gpu. GPU number in this mode is not registered in kubelet and does not have health-check on it.
-
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: gpu-pod1
-spec:
-  schedulerName: volcano
-  containers:
-    - name: cuda-container
-      image: nvidia/cuda:9.0-devel
-      resources:
-        limits:
-          volcano.sh/gpu-memory: 1024 # requesting 1024MB GPU memory
----
-apiVersion: v1
-kind: Pod
-metadata:
-  name: gpu-pod2
-spec:
-  schedulerName: volcano
-  containers:
-    - name: cuda-container
-      image: nvidia/cuda:9.0-devel
-      resources:
-        limits:
-          volcano.sh/gpu-memory: 1024 # requesting 1024MB GPU memory
 ```
 
 > **WARNING:** *if you don't request GPUs when using the device plugin with NVIDIA images all
 > the GPUs on the machine will be exposed inside your container.*
 
-### Running GPU Number Jobs (**Will be deprecated in volcano v1.9**)
-
-NVIDIA GPUs can now be requested via container level resource requirements using the resource name volcano.sh/gpu-number:
-
-```shell script
-$ cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: Pod
-metadata:
-  name: gpu-pod1
-spec:
-  containers:
-    - name: cuda-container
-      image: nvidia/cuda:9.0-devel
-      command: ["sleep"]
-      args: ["100000"]
-      resources:
-        limits:
-          volcano.sh/gpu-number: 1 # requesting 1 gpu cards
-EOF
-```
-
 ## Docs
 
 Please note that:
-- the device plugin feature is beta as of Kubernetes v1.11.
-- the gpu-share device plugin is alpha and is missing the following features, and will be deprecated in volcano v1.9
-    - More comprehensive GPU health checking features
-    - GPU cleanup features
-    - ...
-
-The next sections are focused on building the device plugin and running it.
+- The number of vgpu used by a container can not exceed the number of gpus on that node.
 
 ### With Docker
 
 #### Deploy as DaemonSet:
-
-GPU-SHARE:
-```shell
-$ kubectl create -f nvidia-device-plugin.yml
-```
 
 VGPU:
 ```shell
@@ -291,7 +218,7 @@ $ kubectl create -f nvidia-vgpu-device-plugin.yml
 # Issues and Contributing
 [Checkout the Contributing document!](CONTRIBUTING.md)
 
-* You can report a bug by [filing a new issue](https://github.com/volcano-sh/devices)
+* You can report a bug by [filing a new issue](https://github.com/Project-HAMi/volcano-vgpu-device-plugin)
 * You can contribute by opening a [pull request](https://help.github.com/articles/using-pull-requests/)
 
 ## Versioning
