@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 	"volcano.sh/k8s-device-plugin/pkg/lock"
+	"volcano.sh/k8s-device-plugin/pkg/plugin/nvidia"
 	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/config"
 	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/util"
 
@@ -64,6 +65,8 @@ type NvidiaDevicePlugin struct {
 	deviceListEnvvar string
 	allocatePolicy   gpuallocator.Policy
 	socket           string
+
+	virtualDevices []*pluginapi.Device
 
 	server        *grpc.Server
 	cachedDevices []*Device
@@ -118,6 +121,8 @@ func (m *NvidiaDevicePlugin) initialize() {
 	m.health = make(chan *Device)
 	m.stop = make(chan interface{})
 	check(err)
+
+	m.virtualDevices, _ = nvidia.GetDevices(1)
 }
 
 func (m *NvidiaDevicePlugin) cleanup() {
@@ -254,16 +259,43 @@ func (m *NvidiaDevicePlugin) GetDevicePluginOptions(context.Context, *pluginapi.
 
 // ListAndWatch lists devices and update that list according to the health status
 func (m *NvidiaDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.DevicePlugin_ListAndWatchServer) error {
-	_ = s.Send(&pluginapi.ListAndWatchResponse{Devices: m.apiDevices()})
-	for {
-		select {
-		case <-m.stop:
-			return nil
-		case d := <-m.health:
-			// FIXME: there is no way to recover from the Unhealthy state.
-			//d.Health = pluginapi.Unhealthy
-			log.Printf("'%s' device marked unhealthy: %s", m.resourceName, d.ID)
-			_ = s.Send(&pluginapi.ListAndWatchResponse{Devices: m.apiDevices()})
+	if m.resourceName == util.ResourceMem {
+		err := s.Send(&pluginapi.ListAndWatchResponse{Devices: m.virtualDevices})
+		if err != nil {
+			log.Fatalf("failed sending devices %d: %v", len(m.virtualDevices), err)
+		}
+
+		for {
+			select {
+			case <-m.stop:
+				return nil
+			case d := <-m.health:
+				// FIXME: there is no way to recover from the Unhealthy state.
+				//isChange := false
+				//if d.Health != pluginapi.Unhealthy {
+				//isChange = true
+				//}
+				d.Health = pluginapi.Unhealthy
+				log.Printf("'%s' device marked unhealthy: %s", m.resourceName, d.ID)
+				s.Send(&pluginapi.ListAndWatchResponse{Devices: m.virtualDevices})
+				//if isChange {
+				//	m.kubeInteractor.PatchUnhealthyGPUListOnNode(m.physicalDevices)
+				//}
+			}
+		}
+
+	} else {
+		_ = s.Send(&pluginapi.ListAndWatchResponse{Devices: m.apiDevices()})
+		for {
+			select {
+			case <-m.stop:
+				return nil
+			case d := <-m.health:
+				// FIXME: there is no way to recover from the Unhealthy state.
+				//d.Health = pluginapi.Unhealthy
+				log.Printf("'%s' device marked unhealthy: %s", m.resourceName, d.ID)
+				_ = s.Send(&pluginapi.ListAndWatchResponse{Devices: m.apiDevices()})
+			}
 		}
 	}
 }
@@ -301,6 +333,13 @@ func (m *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 		return m.MIGAllocate(ctx, reqs)
 	}
 	responses := pluginapi.AllocateResponse{}
+
+	if strings.Compare(m.resourceName, util.ResourceMem) == 0 || strings.Compare(m.resourceName, util.ResourceCores) == 0 {
+		for range reqs.ContainerRequests {
+			responses.ContainerResponses = append(responses.ContainerResponses, &pluginapi.ContainerAllocateResponse{})
+		}
+		return &responses, nil
+	}
 	nodename := os.Getenv("NODE_NAME")
 
 	current, err := util.GetPendingPod(nodename)
@@ -443,6 +482,38 @@ func (m *NvidiaDevicePlugin) apiDevices() []*pluginapi.Device {
 	}
 	devices := m.Devices()
 	var res []*pluginapi.Device
+
+	if strings.Compare(m.resourceName, util.ResourceMem) == 0 {
+		for _, dev := range devices {
+			i := 0
+			klog.Infoln("memory=", dev.Memory, "id=", dev.ID)
+			for i < int(32767) {
+				res = append(res, &pluginapi.Device{
+					ID:       fmt.Sprintf("%v-memory-%v", dev.ID, i),
+					Health:   dev.Health,
+					Topology: nil,
+				})
+				i++
+			}
+		}
+		klog.Infoln("res length=", len(res))
+		return res
+	}
+	if strings.Compare(m.resourceName, util.ResourceCores) == 0 {
+		for _, dev := range devices {
+			i := 0
+			for i < 100 {
+				res = append(res, &pluginapi.Device{
+					ID:       fmt.Sprintf("%v-core-%v", dev.ID, i),
+					Health:   dev.Health,
+					Topology: nil,
+				})
+				i++
+			}
+		}
+		return res
+	}
+
 	for _, dev := range devices {
 		for i := uint(0); i < config.DeviceSplitCount; i++ {
 			id := fmt.Sprintf("%v-%v", dev.ID, i)

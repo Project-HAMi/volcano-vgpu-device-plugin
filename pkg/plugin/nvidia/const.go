@@ -19,7 +19,7 @@ package nvidia
 const (
 
 	// Extended gpu resource
-	VolcanoGPUMemory = "volcano.sh/gpu-memory"
+	VolcanoGPUMemory = "volcano.sh/vgpu-memory"
 	// Virtual GPU card number
 	VolcanoGPUNumber = "volcano.sh/gpu-number"
 

@@ -39,8 +39,5 @@ jobs:
         id: buildx
         uses: docker/setup-buildx-action@v1
 
-      - run: make ubuntu20.04
-      - run: TAG_VERSION="${BRANCH_NAME}" make push-tag
-      - run: make push-latest
       - run: make vgpu
       - run: TAG_VERSION="${BRANCH_NAME}" make push-vgpu-tag

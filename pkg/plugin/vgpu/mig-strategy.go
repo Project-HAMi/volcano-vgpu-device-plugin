@@ -68,6 +68,16 @@ func (s *migStrategyNone) GetPlugins(cache *DeviceCache) []*NvidiaDevicePlugin {
 			cache,
 			gpuallocator.NewBestEffortPolicy(),
 			pluginapi.DevicePluginPath+"nvidia-gpu.sock"),
+		NewNvidiaDevicePlugin(
+			util.ResourceMem,
+			cache,
+			gpuallocator.NewBestEffortPolicy(),
+			pluginapi.DevicePluginPath+"nvidia-gpu-memory.sock"),
+		NewNvidiaDevicePlugin(
+			util.ResourceCores,
+			cache,
+			gpuallocator.NewBestEffortPolicy(),
+			pluginapi.DevicePluginPath+"nvidia-gpu-cores.sock"),
 	}
 }
 

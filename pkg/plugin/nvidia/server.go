@@ -261,6 +261,7 @@ func (m *NvidiaDevicePlugin) GetDevicePluginOptions(context.Context, *pluginapi.
 // ListAndWatch lists devices and update that list according to the health status
 func (m *NvidiaDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.DevicePlugin_ListAndWatchServer) error {
 	if m.resourceName == VolcanoGPUMemory {
+		klog.Infoln("virtualDevices=-0=-=-=-=", len(m.virtualDevices))
 		err := s.Send(&pluginapi.ListAndWatchResponse{Devices: m.virtualDevices})
 		if err != nil {
 			log.Fatalf("failed sending devices %d: %v", len(m.virtualDevices), err)

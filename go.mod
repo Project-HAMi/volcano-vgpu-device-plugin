@@ -31,6 +31,7 @@ require (
 	github.com/NVIDIA/go-gpuallocator v0.2.3
 	github.com/NVIDIA/gpu-monitoring-tools v0.0.0-20201109160820-d08ea3cdcce4
 	github.com/fsnotify/fsnotify v1.4.9
+	github.com/mitchellh/gox v1.0.1 // indirect
 	github.com/prometheus/common v0.4.1
 	github.com/spf13/cobra v0.0.5
 	github.com/spf13/viper v1.3.2

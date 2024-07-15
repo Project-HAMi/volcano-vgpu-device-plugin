@@ -74,4 +74,4 @@ init:
 
 gen_bin: init
 	go get github.com/mitchellh/gox
-	CGO_ENABLED=1 gox -osarch=${REL_OSARCH} -ldflags ${LD_FLAGS} -output ${BIN_DIR}/${REL_OSARCH}/volcano-device-plugin ./
+	CGO_ENABLED=1 gox -osarch=${REL_OSARCH} -ldflags ${LD_FLAGS} -output ${BIN_DIR}/${REL_OSARCH}/volcano-device-plugin cmd/vgpu

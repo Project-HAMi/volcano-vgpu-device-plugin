@@ -45,6 +45,8 @@ func init() {
 func GlobalFlagSet() *flag.FlagSet {
 	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	fs.StringVar(&ResourceName, "resource-name", "volcano.sh/vgpu-number", "resource name")
+	fs.StringVar(&ResourceMem, "resource-memory-name", "volcano.sh/vgpu-memory", "resource name for resource memory resources")
+	fs.StringVar(&ResourceCores, "resource-core-name", "volcano.sh/vgpu-cores", "resource name for resource core resources")
 	fs.BoolVar(&DebugMode, "debug", false, "debug mode")
 	klog.InitFlags(fs)
 	return fs
