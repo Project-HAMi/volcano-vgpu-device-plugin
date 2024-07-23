@@ -102,7 +102,7 @@ func ReleaseNodeLock(nodeName string, lockName string) error {
 		return err
 	}
 	if _, ok := node.ObjectMeta.Annotations[lockName]; !ok {
-		klog.V(3).InfoS("Node lock not set", "node", nodeName)
+		klog.V(3).InfoS("Node lock not set", "node", nodeName, "lock", lockName)
 		return nil
 	}
 	newNode := node.DeepCopy()

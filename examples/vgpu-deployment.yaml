@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: resnet101-deployment
+spec:
+  selector:
+    matchLabels:
+      app: resnet101-server
+  replicas: 10
+  template:
+    metadata:
+      labels:
+        app: resnet101-server
+    spec:
+      schedulerName: volcano
+      containers:
+      - name: resnet101-container
+        image: ubuntu:18.04
+        command: ["sleep","infinity"]
+        resources:
+         limits:
+            volcano.sh/vgpu-number: 1 # requesting 2 vGPUs
+            volcano.sh/vgpu-memory: 16384
