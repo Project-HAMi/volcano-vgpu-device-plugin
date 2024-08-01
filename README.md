@@ -1,6 +1,9 @@
-# Volcano device plugin for Kubernetes
+# Volcano vgpu device plugin for Kubernetes
 
 **Note**:
+
+Volcano vgpu device-plugin can provide device-sharing mechanism for NVIDIA devices managed by volcano.
+
 This is based on [Nvidia Device Plugin](https://github.com/NVIDIA/k8s-device-plugin), it uses [HAMi-core](https://github.com/Project-HAMi/HAMi-core) to support hard isolation of GPU card.
 
 And collaborate with volcano, it is possible to enable GPU sharing.
@@ -11,11 +14,9 @@ And collaborate with volcano, it is possible to enable GPU sharing.
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
   - [Preparing your GPU Nodes](#preparing-your-gpu-nodes)
-  - [Enabling GPU Support in Kubernetes](#enabling-gpu-support-in-kubernetes)
+  - [Enabling vGPU Support in Kubernetes](#enabling-gpu-support-in-kubernetes)
   - [Running vGPU Jobs](#running-vgpu-jobs)
-- [Docs](#docs)
 - [Issues and Contributing](#issues-and-contributing)
-
 
 ## About
 
@@ -23,6 +24,7 @@ The Volcano device plugin for Kubernetes is a Daemonset that allows you to autom
 - Expose the number of GPUs on each node of your cluster
 - Keep track of the health of your GPUs
 - Run GPU enabled containers in your Kubernetes cluster.
+- Provide device-sharing mechanism for GPU tasks.
 - Enforce hard resource limit in container.
 
 This repository contains Volcano's official implementation of the [Kubernetes device plugin](https://github.com/kubernetes/community/blob/master/contributors/design-proposals/resource-management/device-plugin.md).
@@ -30,10 +32,11 @@ This repository contains Volcano's official implementation of the [Kubernetes de
 ## Prerequisites
 
 The list of prerequisites for running the Volcano device plugin is described below:
-* NVIDIA drivers ~= 384.81
+* NVIDIA drivers > 440
 * nvidia-docker version > 2.0 (see how to [install](https://github.com/NVIDIA/nvidia-docker) and it's [prerequisites](https://github.com/nvidia/nvidia-docker/wiki/Installation-\(version-2.0\)#prerequisites))
 * docker configured with nvidia as the [default runtime](https://github.com/NVIDIA/nvidia-docker/wiki/Advanced-topics#default-runtime).
-* Kubernetes version >= 1.10
+* Kubernetes version >= 1.16
+* Volcano verison >= 1.19
 
 ## Quick Start
 
@@ -104,37 +107,11 @@ data:
       - name: binpack
 ```
 
-For volcano v1.8.2-(v1.8.2 included), use the following configMap 
-```yaml
-kind: ConfigMap
-apiVersion: v1
-metadata:
-  name: volcano-scheduler-configmap
-  namespace: volcano-system
-data:
-  volcano-scheduler.conf: |
-    actions: "enqueue, allocate, backfill"
-    tiers:
-    - plugins:
-      - name: priority
-      - name: gang
-      - name: conformance
-    - plugins:
-      - name: drf
-      - name: predicates
-        arguments:
-          predicate.VGPUEnable: true # enable vgpu
-      - name: proportion
-      - name: nodeorder
-      - name: binpack
-```
-
 ### Enabling GPU Support in Kubernetes
 
 Once you have enabled this option on *all* the GPU nodes you wish to use,
 you can then enable GPU support in your cluster by deploying the following Daemonset:
 
-VGPU:
 ```
 $ kubectl create -f volcano-vgpu-device-plugin.yml
 ```
@@ -142,8 +119,6 @@ $ kubectl create -f volcano-vgpu-device-plugin.yml
 ### Verify environment is ready
 
 Check the node status, it is ok if `volcano.sh/vgpu-number` is included in the allocatable resources.
-
-> **Note** `volcano.sh/vgpu-memory` and `volcano.sh/vgpu-cores` won't be listed in the allocatable resources, because these are more like a parameter of `volcano.sh/vgpu-number` than a seperate resource. If you wish to keep track of these field, please use volcano metrics.
 
 ```shell script
 $ kubectl get node {node name} -oyaml
@@ -198,18 +173,13 @@ EOF
 ```
 
 > **WARNING:** *if you don't request GPUs when using the device plugin with NVIDIA images all
-> the GPUs on the machine will be exposed inside your container.*
-
-## Docs
-
-Please note that:
-- The number of vgpu used by a container can not exceed the number of gpus on that node.
+> the GPUs on the machine will be exposed inside your container.
+> The number of vgpu used by a container can not exceed the number of gpus on that node.*
 
 ### With Docker
 
 #### Deploy as DaemonSet:
 
-VGPU:
 ```shell
 $ kubectl create -f nvidia-vgpu-device-plugin.yml
 ```
