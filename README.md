@@ -24,10 +24,10 @@ The Volcano device plugin for Kubernetes is a Daemonset that allows you to autom
 - Expose the number of GPUs on each node of your cluster
 - Keep track of the health of your GPUs
 - Run GPU enabled containers in your Kubernetes cluster.
-- Provide device-sharing mechanism for GPU tasks.
+- Provide device-sharing mechanism for GPU tasks as the figure below.
 - Enforce hard resource limit in container.
 
-This repository contains Volcano's official implementation of the [Kubernetes device plugin](https://github.com/kubernetes/community/blob/master/contributors/design-proposals/resource-management/device-plugin.md).
+<img src="./doc/example.png" width = "600" /> 
 
 ## Prerequisites
 
@@ -172,16 +172,20 @@ spec:
 EOF
 ```
 
+You can validate device memory using nvidia-smi inside container:
+
+![img](./doc/hard_limit.jpg)
+
 > **WARNING:** *if you don't request GPUs when using the device plugin with NVIDIA images all
 > the GPUs on the machine will be exposed inside your container.
 > The number of vgpu used by a container can not exceed the number of gpus on that node.*
 
-### With Docker
+### Monitor
 
-#### Deploy as DaemonSet:
+volcano-scheduler-metrics records every GPU usage and limitation, visit the following address to get these metrics.
 
-```shell
-$ kubectl create -f nvidia-vgpu-device-plugin.yml
+```
+curl {volcano scheduler cluster ip}:8080/metrics
 ```
 
 # Issues and Contributing
@@ -190,9 +194,6 @@ $ kubectl create -f nvidia-vgpu-device-plugin.yml
 * You can report a bug by [filing a new issue](https://github.com/Project-HAMi/volcano-vgpu-device-plugin)
 * You can contribute by opening a [pull request](https://help.github.com/articles/using-pull-requests/)
 
-## Versioning
-
-The version exactly matches with [Volcano](https://github.com/volcano-sh/volcano).
 
 ## Upgrading Kubernetes with the device plugin
 
