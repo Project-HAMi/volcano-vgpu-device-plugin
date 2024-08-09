@@ -188,6 +188,13 @@ volcano-scheduler-metrics records every GPU usage and limitation, visit the foll
 curl {volcano scheduler cluster ip}:8080/metrics
 ```
 
+You can also collect the **GPU utilization**, **GPU memory usage**, **pods' GPU memory limitations** and **pods' GPU memory usage** metrics on nodes by visiting the following addresses:
+
+```
+curl {volcano device plugin cluster ip}:9394/metrics
+```
+![img](./doc/vgpu_device_plugin_metrics.png)
+
 # Issues and Contributing
 [Checkout the Contributing document!](CONTRIBUTING.md)
 

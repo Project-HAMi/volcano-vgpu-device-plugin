@@ -1,0 +1,20 @@
+FROM ubuntu:20.04 AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        g++ \
+        ca-certificates \
+        wget && \
+    rm -rf /var/lib/apt/lists/*
+ENV GOLANG_VERSION 1.19.3
+ENV GOPATH /go
+ENV PATH $GOPATH/bin:/usr/local/go/bin:$PATH
+WORKDIR /go/src/volcano.sh/devices
+COPY . .
+RUN wget -nv https://storage.googleapis.com/golang/go$GOLANG_VERSION.linux-amd64.tar.gz
+RUN tar -C /usr/local -xzf go$GOLANG_VERSION.linux-amd64.tar.gz
+RUN go env -w GO111MODULE=on
+RUN go env -w GOPROXY=https://goproxy.cn,direct
+RUN export CGO_LDFLAGS_ALLOW='-Wl,--unresolved-symbols=ignore-in-object-files' && \
+    go build -ldflags="-s -w" -o vGPUmonitor ./cmd/vGPUmonitor
+
+FROM debian:stretch-slim
+COPY --from=builder /go/src/volcano.sh/devices/vGPUmonitor /usr/bin/vGPUmonitor
