@@ -20,19 +20,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
-
-	vGPUmonitor "volcano.sh/k8s-device-plugin/cmd/vGPUmonitor/noderpc"
 )
 
 type podusage struct {
@@ -152,25 +148,4 @@ func monitorPath(podmap map[string]podusage) error {
 
 	klog.Infof("Monitored path map: %v", podmap)
 	return nil
-}
-
-type server struct {
-	vGPUmonitor.UnimplementedNodeVGPUInfoServer
-}
-
-func serveInfo(ch chan error) {
-	s := grpc.NewServer()
-	lis, err := net.Listen("tcp", ":9395")
-	if err != nil {
-		ch <- fmt.Errorf("failed to listen: %v", err)
-		// return respect the error, so the goroutine can end
-		return
-	}
-	vGPUmonitor.RegisterNodeVGPUInfoServer(s, &server{})
-	klog.Infof("server listening at %v", lis.Addr())
-	if err = s.Serve(lis); err != nil {
-		ch <- fmt.Errorf("failed to serve: %v", err)
-		// return respect the error, so the goroutine can end
-		return
-	}
 }

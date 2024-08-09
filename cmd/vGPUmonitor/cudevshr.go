@@ -17,8 +17,6 @@ limitations under the License.
 package main
 
 import (
-	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -27,8 +25,6 @@ import (
 
 	"golang.org/x/exp/mmap"
 )
-
-const maxDevices = 16
 
 type deviceMemory struct {
 	contextSize uint64
@@ -72,55 +68,11 @@ type sharedRegionT struct {
 	priority          int32
 }
 
-type SharedRegionInfoT struct {
-	pid          int32
-	fd           int32
-	initStatus   int16
-	sharedRegion sharedRegionT
-}
-
 type nvidiaCollector struct {
 	// Exposed for testing
 	cudevshrPath string
 	at           *mmap.ReaderAt
 	cudaCache    *sharedRegionT
-}
-
-func setProcSlot(offset int64, at *mmap.ReaderAt) (shrregProcSlotT, error) {
-	temp := shrregProcSlotT{}
-	buff := make([]byte, 4)
-	at.ReadAt(buff, offset)
-	bytesbuffer := bytes.NewBuffer(buff)
-	binary.Read(bytesbuffer, binary.LittleEndian, &temp.pid)
-	var monitorused uint64
-	//fmt.Println("pid==", temp.pid, "buff=", buff)
-	buff = make([]byte, 8)
-	for i := 0; i < maxDevices; i++ {
-		at.ReadAt(buff, offset+8+8*int64(i))
-		bytesbuffer = bytes.NewBuffer(buff)
-		binary.Read(bytesbuffer, binary.LittleEndian, &temp.used[i])
-	}
-	for i := 0; i < maxDevices; i++ {
-		at.ReadAt(buff, offset+8+8*16+8*int64(i))
-		bytesbuffer = bytes.NewBuffer(buff)
-		binary.Read(bytesbuffer, binary.LittleEndian, &monitorused)
-		if monitorused > temp.used[i].total {
-			temp.used[i].total = monitorused
-		}
-	}
-	return temp, nil
-}
-
-func getDeviceUsedMemory(idx int, sharedregion sharedRegionT) (uint64, error) {
-	var sum uint64
-	sum = 0
-	if idx < 0 || idx > 16 {
-		return 0, errors.New("out of device idx")
-	}
-	for _, val := range sharedregion.procs {
-		sum += val.used[idx].total
-	}
-	return sum, nil
 }
 
 func mmapcachefile(filename string, nc *nvidiaCollector) error {

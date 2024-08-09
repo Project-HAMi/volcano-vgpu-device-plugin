@@ -24,9 +24,7 @@ func main() {
 	if err := ValidateEnvVars(); err != nil {
 		klog.Fatalf("Failed to validate environment variables: %v", err)
 	}
-	cgroupDriver = 0
 	errchannel := make(chan error)
-	go serveInfo(errchannel)
 	go initMetrics()
 	go watchAndFeedback()
 	for {

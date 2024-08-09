@@ -17,7 +17,6 @@ limitations under the License.
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -121,15 +120,6 @@ func (cc ClusterManagerCollector) Describe(ch chan<- *prometheus.Desc) {
 	//prometheus.DescribeByCollect(cc, ch)
 }
 
-func parseidstr(podusage string) (string, string, error) {
-	tmp := strings.Split(podusage, "_")
-	if len(tmp) > 1 {
-		return tmp[0], tmp[1], nil
-	} else {
-		return "", "", errors.New("parse error")
-	}
-}
-
 func gettotalusage(usage podusage, vidx int) (deviceMemory, error) {
 	added := deviceMemory{
 		bufferSize:  0,
@@ -146,10 +136,6 @@ func gettotalusage(usage podusage, vidx int) (deviceMemory, error) {
 		added.total += val.used[vidx].total
 	}
 	return added, nil
-}
-
-func getsrlist() map[string]podusage {
-	return srPodList
 }
 
 // Collect first triggers the ReallyExpensiveAssessmentOfTheSystemState. Then it
