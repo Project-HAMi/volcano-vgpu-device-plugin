@@ -31,8 +31,9 @@ WORKDIR /go/src/volcano.sh/devices
 COPY . .
 RUN go env -w GO111MODULE=on
 RUN go env -w GOPROXY=https://goproxy.cn,direct
-RUN export CGO_LDFLAGS_ALLOW='-Wl,--unresolved-symbols=ignore-in-object-files' && \
-    go build -ldflags="-s -w" -o volcano-vgpu-device-plugin ./cmd/vgpu
+RUN export CGO_LDFLAGS_ALLOW='-Wl,--unresolved-symbols=ignore-in-object-files'
+RUN go build -ldflags="-s -w" -o volcano-vgpu-device-plugin ./cmd/vgpu
+RUN go build -ldflags="-s -w" -o volcano-vgpu-monitor ./cmd/vgpu-monitor
 
 FROM $NVIDIA_IMAGE AS NVBUILD
 COPY ./libvgpu /libvgpu
@@ -52,6 +53,7 @@ ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=utility
 
 COPY --from=build /go/src/volcano.sh/devices/volcano-vgpu-device-plugin /usr/bin/volcano-vgpu-device-plugin
+COPY --from=build /go/src/volcano.sh/devices/volcano-vgpu-monitor /usr/bin/volcano-vgpu-monitor
 RUN mkdir -p /k8s-vgpu/lib/nvidia
 COPY --from=build /go/src/volcano.sh/devices/lib/nvidia/ld.so.preload /k8s-vgpu/lib/nvidia/
 COPY --from=NVBUILD /libvgpu/build/libvgpu.so /k8s-vgpu/lib/nvidia/

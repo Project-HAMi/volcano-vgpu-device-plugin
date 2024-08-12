@@ -108,13 +108,12 @@ spec:
             mountPath: /usr/local/vgpu
           - name: hosttmp
             mountPath: /tmp
-      - image: docker.io/projecthami/volcano-vgpu-monitor:v1.9.3
-        imagePullPolicy: Always
+      - image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.9.3
         name: monitor
         command:
           - /bin/bash
           - -c
-          - vGPUmonitor
+          - volcano-vgpu-monitor
         env:
           - name: NVIDIA_VISIBLE_DEVICES
             value: "all"

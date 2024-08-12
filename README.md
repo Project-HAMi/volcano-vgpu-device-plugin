@@ -159,6 +159,7 @@ kind: Pod
 metadata:
   name: gpu-pod1
 spec:
+  schedulerName: volcano
   containers:
     - name: cuda-container
       image: nvidia/cuda:9.0-devel
@@ -191,7 +192,7 @@ curl {volcano scheduler cluster ip}:8080/metrics
 You can also collect the **GPU utilization**, **GPU memory usage**, **pods' GPU memory limitations** and **pods' GPU memory usage** metrics on nodes by visiting the following addresses:
 
 ```
-curl {volcano device plugin cluster ip}:9394/metrics
+curl {volcano device plugin pod ip}:9394/metrics
 ```
 ![img](./doc/vgpu_device_plugin_metrics.png)
 
