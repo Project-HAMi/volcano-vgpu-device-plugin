@@ -20,47 +20,27 @@
 
 DOCKER   ?= docker
 REGISTRY ?= projecthami
-VERSION  ?= latest
-TAG_VERSION ?= 1.0.0
+VERSION  ?= 1.0.0
 
 ##### Public rules #####
 
-all: ubuntu20.04 centos7
+all: ubuntu20.04
 
 push:
-	$(DOCKER) push "$(REGISTRY)/volcano-device-plugin:$(VERSION)-ubuntu20.04"
-	$(DOCKER) push "$(REGISTRY)/volcano-device-plugin:$(VERSION)-centos7"
+	$(DOCKER) push "$(REGISTRY)/volcano-vgpu-device-plugin:$(VERSION)-ubuntu20.04"
 
 push-short:
-	$(DOCKER) tag "$(REGISTRY)/volcano-device-plugin:$(VERSION)-ubuntu20.04" "$(REGISTRY)/volcano-device-plugin:$(VERSION)"
-	$(DOCKER) push "$(REGISTRY)/volcano-device-plugin:$(VERSION)"
+	$(DOCKER) tag "$(REGISTRY)/volcano-vgpu-device-plugin:$(VERSION)-ubuntu20.04" "$(REGISTRY)/volcano-vgpu-device-plugin:$(VERSION)"
+	$(DOCKER) push "$(REGISTRY)/volcano-vgpu-device-plugin:$(VERSION)"
 
 push-latest:
-	$(DOCKER) tag "$(REGISTRY)/volcano-device-plugin:$(VERSION)-ubuntu20.04" "$(REGISTRY)/volcano-device-plugin:latest"
-	$(DOCKER) push "$(REGISTRY)/volcano-device-plugin:latest"
-
-push-tag:
-	$(DOCKER) tag "$(REGISTRY)/volcano-device-plugin:$(VERSION)-ubuntu20.04" "$(REGISTRY)/volcano-device-plugin:$(TAG_VERSION)"
-	$(DOCKER) push "$(REGISTRY)/volcano-device-plugin:$(TAG_VERSION)"
-
-push-vgpu-tag:
-	$(DOCKER) tag "$(REGISTRY)/volcano-vgpu-device-plugin:$(VERSION)-ubuntu20.04" "$(REGISTRY)/volcano-vgpu-device-plugin:$(TAG_VERSION)"
-	$(DOCKER) push "$(REGISTRY)/volcano-vgpu-device-plugin:$(TAG_VERSION)" 
+	$(DOCKER) tag "$(REGISTRY)/volcano-vgpu-device-plugin:$(VERSION)-ubuntu20.04" "$(REGISTRY)/volcano-vgpu-device-plugin:latest"
+	$(DOCKER) push "$(REGISTRY)/volcano-vgpu-device-plugin:latest"
 
 ubuntu20.04:
 	$(DOCKER) build --pull \
-		--tag $(REGISTRY)/volcano-device-plugin:$(VERSION)-ubuntu20.04 \
-		--file docker/amd64/Dockerfile.ubuntu20.04 .
-
-vgpu:
-	$(DOCKER) build --pull \
 		--tag $(REGISTRY)/volcano-vgpu-device-plugin:$(VERSION)-ubuntu20.04 \
-		--file docker/amd64/Dockerfile.vgpu-ubuntu20.04 .
-
-centos7:
-	$(DOCKER) build --pull \
-		--tag $(REGISTRY)/volcano-device-plugin:$(VERSION)-centos7 \
-		--file docker/amd64/Dockerfile.centos7 .
+		--file docker/amd64/Dockerfile.ubuntu20.04 .
 
 include Makefile.def
 
@@ -74,4 +54,4 @@ init:
 
 gen_bin: init
 	go get github.com/mitchellh/gox
-	CGO_ENABLED=1 gox -osarch=${REL_OSARCH} -ldflags ${LD_FLAGS} -output ${BIN_DIR}/${REL_OSARCH}/volcano-device-plugin cmd/vgpu
+	CGO_ENABLED=1 gox -osarch=${REL_OSARCH} -ldflags ${LD_FLAGS} -output ${BIN_DIR}/${REL_OSARCH}/volcano-vgpu-device-plugin ./cmd/vgpu
