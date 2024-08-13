@@ -24,24 +24,24 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: volcano-device-plugin
 rules:
-  - apiGroups: [""]
-    resources: ["nodes"]
-    verbs: ["get","list", "watch","update","patch"]
-  - apiGroups: [""]
-    resources: ["nodes/status"]
-    verbs: ["patch"]
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "update","patch"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch", "update", "patch"]
+- apiGroups: [""]
+  resources: ["nodes/status"]
+  verbs: ["patch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "update", "patch"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: volcano-device-plugin
 subjects:
-  - kind: ServiceAccount
-    name: volcano-device-plugin
-    namespace: kube-system
+- kind: ServiceAccount
+  name: volcano-device-plugin
+  namespace: kube-system
 roleRef:
   kind: ClusterRole
   name: volcano-device-plugin
@@ -82,62 +82,62 @@ spec:
       priorityClassName: "system-node-critical"
       serviceAccount: volcano-device-plugin
       containers:
-      - image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.9.3
+      - image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.9.4
         args: ["--device-split-count=10"]
         lifecycle:
           postStart:
             exec:
-              command: ["/bin/sh","-c","cp -f /k8s-vgpu/lib/nvidia/* /usr/local/vgpu/"]
+              command: ["/bin/sh", "-c", "cp -f /k8s-vgpu/lib/nvidia/* /usr/local/vgpu/"]
         name: volcano-device-plugin
         env:
-          - name: NODE_NAME
-            valueFrom:
-              fieldRef:
-                fieldPath: spec.nodeName
-          - name: HOOK_PATH
-            value: "/usr/local/vgpu"
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: HOOK_PATH
+          value: "/usr/local/vgpu"
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
             add: ["SYS_ADMIN"]
         volumeMounts:
-          - name: device-plugin
-            mountPath: /var/lib/kubelet/device-plugins
-          - name: lib
-            mountPath: /usr/local/vgpu
-          - name: hosttmp
-            mountPath: /tmp
-      volumes:
-        - hostPath:
-            path: /var/lib/kubelet/device-plugins
-            type: Directory
-          name: device-plugin
-        - hostPath:
-            path: /usr/local/vgpu
-            type: DirectoryOrCreate
-          name: lib
+        - name: device-plugin
+          mountPath: /var/lib/kubelet/device-plugins
+        - name: lib
+          mountPath: /usr/local/vgpu
         - name: hosttmp
-          hostPath:
-            path: /tmp
-            type: DirectoryOrCreate
-        - name: dockers
-          hostPath:
-            path: /run/docker
-            type: DirectoryOrCreate
-        - name: containerds
-          hostPath:
-            path: /run/containerd
-            type: DirectoryOrCreate
-        - name: usrbin
-          hostPath:
-            path: /usr/bin
-            type: Directory
-        - name: sysinfo
-          hostPath:
-            path: /sys
-            type: Directory
-        - name: hostvar
-          hostPath:
-            path: /var
-            type: Directory
+          mountPath: /tmp
+      volumes:
+      - hostPath:
+          path: /var/lib/kubelet/device-plugins
+          type: Directory
+        name: device-plugin
+      - hostPath:
+          path: /usr/local/vgpu
+          type: DirectoryOrCreate
+        name: lib
+      - name: hosttmp
+        hostPath:
+          path: /tmp
+          type: DirectoryOrCreate
+      - name: dockers
+        hostPath:
+          path: /run/docker
+          type: DirectoryOrCreate
+      - name: containerds
+        hostPath:
+          path: /run/containerd
+          type: DirectoryOrCreate
+      - name: usrbin
+        hostPath:
+          path: /usr/bin
+          type: Directory
+      - name: sysinfo
+        hostPath:
+          path: /sys
+          type: Directory
+      - name: hostvar
+        hostPath:
+          path: /var
+          type: Directory
