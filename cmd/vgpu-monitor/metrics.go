@@ -144,7 +144,7 @@ func gettotalusage(usage podusage, vidx int) (deviceMemory, error) {
 // Note that Collect could be called concurrently, so we depend on
 // ReallyExpensiveAssessmentOfTheSystemState to be concurrency-safe.
 func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
-	klog.Info("Starting to collect metrics for vGPUMonitor")
+	klog.Info("Starting to collect metrics for volcano vgpu monitor")
 	if srPodList == nil {
 		srPodList = make(map[string]podusage)
 	}
@@ -281,7 +281,7 @@ func NewClusterManager(zone string, reg prometheus.Registerer) *ClusterManager {
 func initMetrics() {
 	// Since we are dealing with custom Collector implementations, it might
 	// be a good idea to try it out with a pedantic registry.
-	klog.Info("Initializing metrics for vGPUmonitor")
+	klog.Info("Initializing metrics for volcano vgpu monitor")
 	reg := prometheus.NewRegistry()
 	//reg := prometheus.NewPedanticRegistry()
 	config, err := rest.InClusterConfig()
