@@ -53,6 +53,5 @@ jobs:
       id: runtime-tag
       run: |
         echo tag="$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-    - run: VERSION="${BRANCH_NAME}-${{ steps.runtime-tag.outputs.tag }}" make ubuntu20.04
-    - run: VERSION="${BRANCH_NAME}-${{ steps.runtime-tag.outputs.tag }}" make push-short
-    - run: VERSION="${BRANCH_NAME}-${{ steps.runtime-tag.outputs.tag }}" make push-latest
+    - run: BUILD_PLATFORMS="linux/amd64,linux/arm64" VERSION="${BRANCH_NAME}-${{ steps.runtime-tag.outputs.tag }}" make push-short
+    - run: BUILD_PLATFORMS="linux/amd64,linux/arm64" VERSION="${BRANCH_NAME}-${{ steps.runtime-tag.outputs.tag }}" make push-latest

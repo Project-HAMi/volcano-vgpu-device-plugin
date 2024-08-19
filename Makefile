@@ -13,36 +13,41 @@
 # limitations under the License.
 
 
-.PHONY: all build builder test
 .DEFAULT_GOAL := all
 
-##### Global variables #####
+include Makefile.def
 
-DOCKER   ?= docker
+##### Global variables #####
 REGISTRY ?= projecthami
 VERSION  ?= 1.0.0
+
+##### Using `BUILD_PLATFORMS=linux/arm64 make all` to build arm64 arch image locally
+##### Using `BUILD_PLATFORMS=linux/amd64,linux/arm64 make push-latest` to build and publish multi-arch image
+BUILD_PLATFORMS ?= linux/amd64
 
 ##### Public rules #####
 
 all: ubuntu20.04
 
 push:
-	$(DOCKER) push "$(REGISTRY)/volcano-vgpu-device-plugin:$(VERSION)-ubuntu20.04"
+	docker buildx build --platform $(BUILD_PLATFORMS) --push \
+		--tag $(REGISTRY)/volcano-vgpu-device-plugin:$(VERSION)-ubuntu20.04 \
+		--file docker/Dockerfile.ubuntu20.04 .
 
 push-short:
-	$(DOCKER) tag "$(REGISTRY)/volcano-vgpu-device-plugin:$(VERSION)-ubuntu20.04" "$(REGISTRY)/volcano-vgpu-device-plugin:$(VERSION)"
-	$(DOCKER) push "$(REGISTRY)/volcano-vgpu-device-plugin:$(VERSION)"
+	docker buildx build --platform $(BUILD_PLATFORMS) --push \
+		--tag $(REGISTRY)/volcano-vgpu-device-plugin:$(VERSION)\
+		--file docker/Dockerfile.ubuntu20.04 .
 
 push-latest:
-	$(DOCKER) tag "$(REGISTRY)/volcano-vgpu-device-plugin:$(VERSION)-ubuntu20.04" "$(REGISTRY)/volcano-vgpu-device-plugin:latest"
-	$(DOCKER) push "$(REGISTRY)/volcano-vgpu-device-plugin:latest"
+	docker buildx build --platform $(BUILD_PLATFORMS) --push \
+		--tag $(REGISTRY)/volcano-vgpu-device-plugin:latest\
+		--file docker/Dockerfile.ubuntu20.04 .
 
 ubuntu20.04:
-	$(DOCKER) build --pull \
+	docker buildx build --platform $(BUILD_PLATFORMS) --load \
 		--tag $(REGISTRY)/volcano-vgpu-device-plugin:$(VERSION)-ubuntu20.04 \
-		--file docker/amd64/Dockerfile.ubuntu20.04 .
-
-include Makefile.def
+		--file docker/Dockerfile.ubuntu20.04 .
 
 BIN_DIR=_output/bin
 RELEASE_DIR=_output/release

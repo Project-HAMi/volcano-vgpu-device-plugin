@@ -1,0 +1,58 @@
+# Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+FROM ubuntu:20.04 AS builder
+ARG TARGETARCH
+RUN apt-get update
+RUN apt-get -y install ca-certificates g++ wget
+RUN wget -qO- https://storage.googleapis.com/golang/go1.19.3.linux-${TARGETARCH}.tar.gz | tar -C /usr/local -zx
+ENV GOPATH=/go
+ENV PATH=$GOPATH/bin:/usr/local/go/bin:$PATH
+WORKDIR /go/src/volcano.sh/devices
+COPY . .
+RUN go env -w GO111MODULE=on
+RUN go env -w GOPROXY=https://goproxy.cn,direct
+RUN go env -w GOARCH=${TARGETARCH}
+RUN go env -w CGO_LDFLAGS_ALLOW='-Wl,--unresolved-symbols=ignore-in-object-files'
+RUN go build -ldflags="-s -w" -o volcano-vgpu-device-plugin ./cmd/vgpu
+RUN go build -ldflags="-s -w" -o volcano-vgpu-monitor ./cmd/vgpu-monitor
+
+FROM nvidia/cuda:12.2.0-devel-ubuntu20.04 AS nvidia_builder
+ARG TARGETARCH
+RUN apt-get update
+RUN apt-get -y install wget openssl libssl-dev
+RUN case "${TARGETARCH}" in \
+        "amd64") wget https://cmake.org/files/v3.19/cmake-3.19.8-Linux-x86_64.tar.gz ;; \
+        "arm64") wget https://cmake.org/files/v3.19/cmake-3.19.8-Linux-aarch64.tar.gz ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
+    esac && \
+    tar -xzf cmake-3.19.8-Linux-*.tar.gz -C /opt && \
+    ln -s /opt/cmake-3.19.8-Linux-*/bin/cmake /usr/local/bin/cmake3 && \
+    rm cmake-3.19.8-Linux-*.tar.gz
+COPY ./libvgpu /libvgpu
+WORKDIR /libvgpu
+RUN rm -rf /libvgpu/build
+RUN bash ./build.sh
+
+FROM debian:stretch-slim
+
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=utility
+
+COPY --from=builder /go/src/volcano.sh/devices/volcano-vgpu-device-plugin /usr/bin/volcano-vgpu-device-plugin
+COPY --from=builder /go/src/volcano.sh/devices/volcano-vgpu-monitor /usr/bin/volcano-vgpu-monitor
+COPY --from=builder /go/src/volcano.sh/devices/lib/nvidia/ld.so.preload /k8s-vgpu/lib/nvidia/
+COPY --from=nvidia_builder /libvgpu/build/libvgpu.so /k8s-vgpu/lib/nvidia/
+
+ENTRYPOINT ["volcano-vgpu-device-plugin"]

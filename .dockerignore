@@ -1,0 +1,20 @@
+# Ignore version control directories
+.git/
+.github/
+
+# Ignore build and docs directories
+_output/
+doc/
+examples/
+README.md
+OWNERS
+LICENSE
+
+# Ignore IDE and OS files
+*.DS_Store
+.idea/
+.vscode/
+*.iml
+
+# Ignore Docker-specific files
+docker/
