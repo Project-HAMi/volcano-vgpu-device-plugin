@@ -18,6 +18,7 @@ package config
 
 var (
 	DeviceSplitCount   uint
+	GPUMemoryFactor    uint
 	DeviceCoresScaling float64
 	NodeName           string
 	RuntimeSocketFlag  string

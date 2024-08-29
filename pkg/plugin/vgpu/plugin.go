@@ -122,7 +122,7 @@ func (m *NvidiaDevicePlugin) initialize() {
 	m.stop = make(chan interface{})
 	check(err)
 
-	m.virtualDevices, _ = nvidia.GetDevices(1)
+	m.virtualDevices, _ = nvidia.GetDevices(config.GPUMemoryFactor)
 }
 
 func (m *NvidiaDevicePlugin) cleanup() {
@@ -377,7 +377,7 @@ func (m *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 		response.Envs = make(map[string]string)
 		for i, dev := range devreq {
 			limitKey := fmt.Sprintf("CUDA_DEVICE_MEMORY_LIMIT_%v", i)
-			response.Envs[limitKey] = fmt.Sprintf("%vm", dev.Usedmem)
+			response.Envs[limitKey] = fmt.Sprintf("%vm", dev.Usedmem*int32(config.GPUMemoryFactor))
 			tmp := response.Envs["NVIDIA_VISIBLE_DEVICES"]
 			if i > 0 {
 				response.Envs["NVIDIA_VISIBLE_DEVICES"] = fmt.Sprintf("%v,%v", tmp, dev.UUID)

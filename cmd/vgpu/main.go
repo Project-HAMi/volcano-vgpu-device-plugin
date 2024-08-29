@@ -64,6 +64,7 @@ func init() {
 	rootCmd.Flags().StringVar(&migStrategyFlag, "mig-strategy", "none", "the desired strategy for exposing MIG devices on GPUs that support it:\n\t\t[none | single | mixed]")
 	rootCmd.Flags().BoolVar(&failOnInitErrorFlag, "fail-on-init-error", true, "fail the plugin if an error is encountered during initialization, otherwise block indefinitely")
 	rootCmd.Flags().UintVar(&config.DeviceSplitCount, "device-split-count", 2, "the number for NVIDIA device split")
+	rootCmd.Flags().UintVar(&config.GPUMemoryFactor, "gpu-memory-factor", 1, "the default gpu memory block size is 1MB")
 	rootCmd.Flags().Float64Var(&config.DeviceCoresScaling, "device-cores-scaling", 1.0, "the ratio for NVIDIA device cores scaling")
 	rootCmd.Flags().StringVar(&config.NodeName, "node-name", viper.GetString("node-name"), "node name")
 
