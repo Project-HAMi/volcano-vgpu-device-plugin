@@ -20,9 +20,8 @@ RUN wget -qO- https://storage.googleapis.com/golang/go1.19.3.linux-${TARGETARCH}
 ENV GOPATH=/go
 ENV PATH=$GOPATH/bin:/usr/local/go/bin:$PATH
 WORKDIR /go/src/volcano.sh/devices
+
 COPY . .
-RUN go env -w GO111MODULE=on
-RUN go env -w GOPROXY=https://goproxy.cn,direct
 RUN go env -w GOARCH=${TARGETARCH}
 RUN go env -w CGO_LDFLAGS_ALLOW='-Wl,--unresolved-symbols=ignore-in-object-files'
 RUN go build -ldflags="-s -w" -o volcano-vgpu-device-plugin ./cmd/vgpu
