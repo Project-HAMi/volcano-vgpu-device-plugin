@@ -24,6 +24,9 @@ const (
 	BindTimeAnnotations              = "volcano.sh/bind-time"
 	DeviceBindPhase                  = "volcano.sh/bind-phase"
 
+	// PodAnnotationMaxLength pod annotation max data length 1MB
+	PodAnnotationMaxLength = 1024 * 1024
+
 	GPUInUse = "nvidia.com/use-gputype"
 	GPUNoUse = "nvidia.com/nouse-gputype"
 
