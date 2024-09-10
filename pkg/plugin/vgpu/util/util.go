@@ -22,6 +22,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -58,30 +59,56 @@ func GetNode(nodename string) (*v1.Node, error) {
 }
 
 func GetPendingPod(node string) (*v1.Pod, error) {
-	podlist, err := lock.GetClient().CoreV1().Pods("").List(context.Background(), metav1.ListOptions{})
+	podList, err := lock.GetClient().CoreV1().Pods("").List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
-	for _, p := range podlist.Items {
-		if _, ok := p.Annotations[BindTimeAnnotations]; !ok {
-			continue
-		}
-		if phase, ok := p.Annotations[DeviceBindPhase]; !ok {
-			continue
-		} else {
-			if strings.Compare(phase, DeviceBindAllocating) != 0 {
-				continue
-			}
-		}
-		if n, ok := p.Annotations[AssignedNodeAnnotations]; !ok {
-			continue
-		} else {
-			if strings.Compare(n, node) == 0 {
-				return &p, nil
-			}
+
+	oldestPod := getOldestPod(podList.Items)
+	if oldestPod == nil {
+		return nil, fmt.Errorf("cannot get valid pod")
+	}
+
+	return oldestPod, nil
+}
+
+func getOldestPod(pods []v1.Pod) *v1.Pod {
+	if len(pods) == 0 {
+		return nil
+	}
+	oldest := pods[0]
+	for _, pod := range pods {
+		klog.V(4).Infof("pod %s, predicate time: %s", pod.Name, pod.Annotations[AssignedTimeAnnotations])
+		if getPredicateTimeFromPodAnnotation(&oldest) > getPredicateTimeFromPodAnnotation(&pod) {
+			oldest = pod
 		}
 	}
-	return nil, nil
+	klog.V(4).Infof("oldest pod %#v, predicate time: %#v", oldest.Name,
+		oldest.Annotations[AssignedTimeAnnotations])
+	annotation := map[string]string{AssignedTimeAnnotations: strconv.FormatUint(math.MaxUint64, 10)}
+	if err := PatchPodAnnotations(&oldest, annotation); err != nil {
+		klog.Errorf("update pod %s failed, err: %v", oldest.Name, err)
+		return nil
+	}
+	return &oldest
+}
+
+func getPredicateTimeFromPodAnnotation(pod *v1.Pod) uint64 {
+	assumeTimeStr, ok := pod.Annotations[AssignedTimeAnnotations]
+	if !ok {
+		klog.Warningf("volcano not write timestamp, pod Name: %s", pod.Name)
+		return math.MaxUint64
+	}
+	if len(assumeTimeStr) > PodAnnotationMaxLength {
+		klog.Warningf("timestamp fmt invalid, pod Name: %s", pod.Name)
+		return math.MaxUint64
+	}
+	predicateTime, err := strconv.ParseUint(assumeTimeStr, 10, 64)
+	if err != nil {
+		klog.Errorf("parse timestamp failed, %v", err)
+		return math.MaxUint64
+	}
+	return predicateTime
 }
 
 func DecodeNodeDevices(str string) []*DeviceInfo {
