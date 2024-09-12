@@ -74,7 +74,7 @@ func (r *DeviceRegister) apiDevices() *[]*util.DeviceInfo {
 	return &res
 }
 
-func (r *DeviceRegister) RegistrInAnnotation() error {
+func (r *DeviceRegister) RegisterInAnnotation() error {
 	devices := r.apiDevices()
 	annos := make(map[string]string)
 	node, err := util.GetNode(config.NodeName)
@@ -97,7 +97,7 @@ func (r *DeviceRegister) RegistrInAnnotation() error {
 func (r *DeviceRegister) WatchAndRegister() {
 	klog.Infof("into WatchAndRegister")
 	for {
-		err := r.RegistrInAnnotation()
+		err := r.RegisterInAnnotation()
 		if err != nil {
 			klog.Errorf("register error, %v", err)
 			time.Sleep(time.Second * 5)
