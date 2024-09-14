@@ -19,24 +19,21 @@ package main
 import (
 	"time"
 
+	"volcano.sh/k8s-device-plugin/pkg/monitor/nvidia"
+
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"k8s.io/klog/v2"
 )
 
 type UtilizationPerDevice []int
 
-var srPodList map[string]podusage
-
-func init() {
-	srPodList = make(map[string]podusage)
-}
-
-func CheckBlocking(utSwitchOn map[string]UtilizationPerDevice, p int, pu podusage) bool {
-	for _, devuuid := range pu.sr.uuids {
-		_, ok := utSwitchOn[string(devuuid.uuid[:])]
+func CheckBlocking(utSwitchOn map[string]UtilizationPerDevice, p int, c *nvidia.ContainerUsage) bool {
+	for i := 0; i < c.Info.DeviceMax(); i++ {
+		uuid := c.Info.DeviceUUID(i)
+		_, ok := utSwitchOn[uuid]
 		if ok {
 			for i := 0; i < p; i++ {
-				if utSwitchOn[string(devuuid.uuid[:])][i] > 0 {
+				if utSwitchOn[uuid][i] > 0 {
 					return true
 				}
 			}
@@ -47,16 +44,17 @@ func CheckBlocking(utSwitchOn map[string]UtilizationPerDevice, p int, pu podusag
 }
 
 // Check whether task with higher priority use GPU or there are other tasks with the same priority.
-func CheckPriority(utSwitchOn map[string]UtilizationPerDevice, p int, pu podusage) bool {
-	for _, devuuid := range pu.sr.uuids {
-		_, ok := utSwitchOn[string(devuuid.uuid[:])]
+func CheckPriority(utSwitchOn map[string]UtilizationPerDevice, p int, c *nvidia.ContainerUsage) bool {
+	for i := 0; i < c.Info.DeviceMax(); i++ {
+		uuid := c.Info.DeviceUUID(i)
+		_, ok := utSwitchOn[uuid]
 		if ok {
 			for i := 0; i < p; i++ {
-				if utSwitchOn[string(devuuid.uuid[:])][i] > 0 {
+				if utSwitchOn[uuid][i] > 0 {
 					return true
 				}
 			}
-			if utSwitchOn[string(devuuid.uuid[:])][p] > 1 {
+			if utSwitchOn[uuid][p] > 1 {
 				return true
 			}
 		}
@@ -64,72 +62,72 @@ func CheckPriority(utSwitchOn map[string]UtilizationPerDevice, p int, pu podusag
 	return false
 }
 
-func Observe(srlist *map[string]podusage) error {
+func Observe(lister *nvidia.ContainerLister) {
 	utSwitchOn := map[string]UtilizationPerDevice{}
+	containers := lister.ListContainers()
 
-	for idx, val := range *srlist {
-		if val.sr == nil {
-			continue
-		}
-		if val.sr.recentKernel > 0 {
-			(*srlist)[idx].sr.recentKernel--
-			if (*srlist)[idx].sr.recentKernel > 0 {
-				for _, devuuid := range val.sr.uuids {
+	for _, c := range containers {
+		recentKernel := c.Info.GetRecentKernel()
+		if recentKernel > 0 {
+			recentKernel--
+			if recentKernel > 0 {
+				for i := 0; i < c.Info.DeviceMax(); i++ {
 					// Null device condition
-					if devuuid.uuid[0] == 0 {
+					if !c.Info.IsValidUUID(i) {
 						continue
 					}
-					if len(utSwitchOn[string(devuuid.uuid[:])]) == 0 {
-						utSwitchOn[string(devuuid.uuid[:])] = []int{0, 0}
+					uuid := c.Info.DeviceUUID(i)
+					if len(utSwitchOn[uuid]) == 0 {
+						utSwitchOn[uuid] = []int{0, 0}
 					}
-					utSwitchOn[string(devuuid.uuid[:])][val.sr.priority]++
+					utSwitchOn[uuid][c.Info.GetPriority()]++
 				}
 			}
+			c.Info.SetRecentKernel(recentKernel)
 		}
 	}
-	for idx, val := range *srlist {
-		if val.sr == nil {
-			continue
-		}
-		if CheckBlocking(utSwitchOn, int(val.sr.priority), val) {
-			if (*srlist)[idx].sr.recentKernel >= 0 {
+	for idx, c := range containers {
+		priority := c.Info.GetPriority()
+		recentKernel := c.Info.GetRecentKernel()
+		utilizationSwitch := c.Info.GetUtilizationSwitch()
+		if CheckBlocking(utSwitchOn, priority, c) {
+			if recentKernel >= 0 {
 				klog.Infof("utSwitchon=%v", utSwitchOn)
 				klog.Infof("Setting Blocking to on %v", idx)
-				(*srlist)[idx].sr.recentKernel = -1
+				c.Info.SetRecentKernel(-1)
 			}
 		} else {
-			if (*srlist)[idx].sr.recentKernel < 0 {
+			if recentKernel < 0 {
 				klog.Infof("utSwitchon=%v", utSwitchOn)
 				klog.Infof("Setting Blocking to off %v", idx)
-				(*srlist)[idx].sr.recentKernel = 0
+				c.Info.SetRecentKernel(0)
 			}
 		}
-		if CheckPriority(utSwitchOn, int(val.sr.priority), val) {
-			if (*srlist)[idx].sr.utilizationSwitch != 1 {
+		if CheckPriority(utSwitchOn, priority, c) {
+			if utilizationSwitch != 1 {
 				klog.Infof("utSwitchon=%v", utSwitchOn)
 				klog.Infof("Setting UtilizationSwitch to on %v", idx)
-				(*srlist)[idx].sr.utilizationSwitch = 1
+				c.Info.SetUtilizationSwitch(1)
 			}
 		} else {
-			if (*srlist)[idx].sr.utilizationSwitch != 0 {
+			if utilizationSwitch != 0 {
 				klog.Infof("utSwitchon=%v", utSwitchOn)
 				klog.Infof("Setting UtilizationSwitch to off %v", idx)
-				(*srlist)[idx].sr.utilizationSwitch = 0
+				c.Info.SetUtilizationSwitch(0)
 			}
 		}
 	}
-	return nil
 }
 
-func watchAndFeedback() {
+func watchAndFeedback(lister *nvidia.ContainerLister) {
 	nvml.Init()
 	for {
 		time.Sleep(time.Second * 5)
-		err := monitorPath(srPodList)
+		err := lister.Update()
 		if err != nil {
-			klog.Errorf("monitorPath failed %v", err.Error())
+			klog.Errorf("Failed to update container list: %v", err)
+			continue
 		}
-		klog.Infof("WatchAndFeedback srPodList=%v", srPodList)
-		Observe(&srPodList)
+		Observe(lister)
 	}
 }

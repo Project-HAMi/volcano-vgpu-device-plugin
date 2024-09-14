@@ -37,7 +37,7 @@ RUN case "${TARGETARCH}" in \
         *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
     esac && \
     tar -xzf cmake-3.19.8-Linux-*.tar.gz -C /opt && \
-    ln -s /opt/cmake-3.19.8-Linux-*/bin/cmake /usr/local/bin/cmake3 && \
+    ln -s /opt/cmake-3.19.8-Linux-*/bin/cmake /usr/local/bin/cmake && \
     rm cmake-3.19.8-Linux-*.tar.gz
 COPY ./libvgpu /libvgpu
 WORKDIR /libvgpu
