@@ -17,6 +17,8 @@ limitations under the License.
 package main
 
 import (
+	"volcano.sh/k8s-device-plugin/pkg/monitor/nvidia"
+
 	"k8s.io/klog/v2"
 )
 
@@ -24,9 +26,13 @@ func main() {
 	if err := ValidateEnvVars(); err != nil {
 		klog.Fatalf("Failed to validate environment variables: %v", err)
 	}
+	containerLister, err := nvidia.NewContainerLister()
+	if err != nil {
+		klog.Fatalf("Failed to create container lister: %v", err)
+	}
 	errchannel := make(chan error)
-	go initMetrics()
-	go watchAndFeedback()
+	go initMetrics(containerLister)
+	go watchAndFeedback(containerLister)
 	for {
 		err := <-errchannel
 		klog.Errorf("failed to serve: %v", err)

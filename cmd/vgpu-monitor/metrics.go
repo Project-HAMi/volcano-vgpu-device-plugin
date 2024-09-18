@@ -23,15 +23,15 @@ import (
 	"strings"
 	"time"
 
+	"volcano.sh/k8s-device-plugin/pkg/monitor/nvidia"
+
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/informers"
-	"k8s.io/client-go/kubernetes"
 	listerscorev1 "k8s.io/client-go/listers/core/v1"
-	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 )
 
@@ -49,7 +49,8 @@ import (
 type ClusterManager struct {
 	Zone string
 	// Contains many more fields not listed in this example.
-	PodLister listerscorev1.PodLister
+	PodLister       listerscorev1.PodLister
+	containerLister *nvidia.ContainerLister
 }
 
 // ReallyExpensiveAssessmentOfTheSystemState is a mock for the data gathering a
@@ -106,7 +107,16 @@ var (
 		"Container device meory description",
 		[]string{"podnamespace", "podname", "ctrname", "vdeviceid", "deviceuuid", "context", "module", "data", "offset"}, nil,
 	)
-	clientset *kubernetes.Clientset
+	ctrDeviceUtilizationdesc = prometheus.NewDesc(
+		"Device_utilization_desc_of_container",
+		"Container device utilization description",
+		[]string{"podnamespace", "podname", "ctrname", "vdeviceid", "deviceuuid"}, nil,
+	)
+	ctrDeviceLastKernelDesc = prometheus.NewDesc(
+		"Device_last_kernel_of_container",
+		"Container device last kernel description",
+		[]string{"podnamespace", "podname", "ctrname", "vdeviceid", "deviceuuid"}, nil,
+	)
 )
 
 // Describe is implemented with DescribeByCollect. That's possible because the
@@ -120,137 +130,153 @@ func (cc ClusterManagerCollector) Describe(ch chan<- *prometheus.Desc) {
 	//prometheus.DescribeByCollect(cc, ch)
 }
 
-func gettotalusage(usage podusage, vidx int) (deviceMemory, error) {
-	added := deviceMemory{
-		bufferSize:  0,
-		contextSize: 0,
-		moduleSize:  0,
-		offset:      0,
-		total:       0,
-	}
-	for _, val := range usage.sr.procs {
-		added.bufferSize += val.used[vidx].bufferSize
-		added.contextSize += val.used[vidx].contextSize
-		added.moduleSize += val.used[vidx].moduleSize
-		added.offset += val.used[vidx].offset
-		added.total += val.used[vidx].total
-	}
-	return added, nil
-}
-
 // Collect first triggers the ReallyExpensiveAssessmentOfTheSystemState. Then it
 // creates constant metrics for each host on the fly based on the returned data.
 //
 // Note that Collect could be called concurrently, so we depend on
 // ReallyExpensiveAssessmentOfTheSystemState to be concurrency-safe.
 func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
-	klog.Info("Starting to collect metrics for volcano vgpu monitor")
-	if srPodList == nil {
-		srPodList = make(map[string]podusage)
+	klog.Info("Starting to collect metrics for vGPUMonitor")
+	containerLister := cc.ClusterManager.containerLister
+	if err := containerLister.Update(); err != nil {
+		klog.Error("Update container error: %s", err.Error())
 	}
-	if err := monitorPath(srPodList); err != nil {
-		klog.Error("err=", err.Error())
+
+	nvret := nvml.Init()
+	if nvret != nvml.SUCCESS {
+		klog.Error("nvml Init err=", nvml.ErrorString(nvret))
 	}
-	if clientset != nil {
-		nvret := nvml.Init()
-		if nvret != nvml.SUCCESS {
-			klog.Error("nvml Init err=", nvml.ErrorString(nvret))
-		}
-		devnum, nvret := nvml.DeviceGetCount()
-		if nvret != nvml.SUCCESS {
-			klog.Error("nvml GetDeviceCount err=", nvml.ErrorString(nvret))
-		} else {
-			for ii := 0; ii < devnum; ii++ {
-				hdev, nvret := nvml.DeviceGetHandleByIndex(ii)
-				if nvret != nvml.SUCCESS {
-					klog.Error(nvml.ErrorString(nvret))
-				}
-				memoryUsed := 0
-				memory, ret := hdev.GetMemoryInfo()
-				if ret == nvml.SUCCESS {
-					memoryUsed = int(memory.Used)
-				} else {
-					klog.Error("nvml get memory error ret=", ret)
-				}
-
-				uuid, nvret := hdev.GetUUID()
-				if nvret != nvml.SUCCESS {
-					klog.Error(nvml.ErrorString(nvret))
-				} else {
-					ch <- prometheus.MustNewConstMetric(
-						hostGPUdesc,
-						prometheus.GaugeValue,
-						float64(memoryUsed),
-						fmt.Sprint(ii), uuid,
-					)
-				}
-				util, nvret := hdev.GetUtilizationRates()
-				if nvret != nvml.SUCCESS {
-					klog.Error(nvml.ErrorString(nvret))
-				} else {
-					ch <- prometheus.MustNewConstMetric(
-						hostGPUUtilizationdesc,
-						prometheus.GaugeValue,
-						float64(util.Gpu),
-						fmt.Sprint(ii), uuid,
-					)
-				}
-
+	devnum, nvret := nvml.DeviceGetCount()
+	if nvret != nvml.SUCCESS {
+		klog.Error("nvml GetDeviceCount err=", nvml.ErrorString(nvret))
+	} else {
+		for ii := 0; ii < devnum; ii++ {
+			hdev, nvret := nvml.DeviceGetHandleByIndex(ii)
+			if nvret != nvml.SUCCESS {
+				klog.Error(nvml.ErrorString(nvret))
 			}
-		}
+			memoryUsed := 0
+			memory, ret := hdev.GetMemoryInfo()
+			if ret == nvml.SUCCESS {
+				memoryUsed = int(memory.Used)
+			} else {
+				klog.Error("nvml get memory error ret=", ret)
+			}
 
-		pods, err := cc.ClusterManager.PodLister.List(labels.Everything())
-		if err != nil {
-			klog.Error("failed to list pods with err=", err.Error())
+			uuid, nvret := hdev.GetUUID()
+			if nvret != nvml.SUCCESS {
+				klog.Error(nvml.ErrorString(nvret))
+			} else {
+				ch <- prometheus.MustNewConstMetric(
+					hostGPUdesc,
+					prometheus.GaugeValue,
+					float64(memoryUsed),
+					fmt.Sprint(ii), uuid,
+				)
+			}
+			util, nvret := hdev.GetUtilizationRates()
+			if nvret != nvml.SUCCESS {
+				klog.Error(nvml.ErrorString(nvret))
+			} else {
+				ch <- prometheus.MustNewConstMetric(
+					hostGPUUtilizationdesc,
+					prometheus.GaugeValue,
+					float64(util.Gpu),
+					fmt.Sprint(ii), uuid,
+				)
+			}
+
 		}
-		for _, val := range pods {
-			for sridx := range srPodList {
-				if srPodList[sridx].sr == nil {
+	}
+
+	pods, err := cc.ClusterManager.PodLister.List(labels.Everything())
+	if err != nil {
+		klog.Error("failed to list pods with err=", err.Error())
+	}
+	nowSec := time.Now().Unix()
+
+	containers := containerLister.ListContainers()
+	for _, pod := range pods {
+		for _, c := range containers {
+			//for sridx := range srPodList {
+			//	if srPodList[sridx].sr == nil {
+			//		continue
+			//	}
+			if c.Info == nil {
+				continue
+			}
+			//podUID := strings.Split(srPodList[sridx].idstr, "_")[0]
+			//ctrName := strings.Split(srPodList[sridx].idstr, "_")[1]
+			podUID := c.PodUID
+			ctrName := c.ContainerName
+			if strings.Compare(string(pod.UID), podUID) != 0 {
+				continue
+			}
+			fmt.Println("Pod matched!", pod.Name, pod.Namespace, pod.Labels)
+			for _, ctr := range pod.Spec.Containers {
+				if strings.Compare(ctr.Name, ctrName) != 0 {
 					continue
 				}
-				podUID := strings.Split(srPodList[sridx].idstr, "_")[0]
-				ctrName := strings.Split(srPodList[sridx].idstr, "_")[1]
-				if strings.Compare(string(val.UID), podUID) == 0 {
-					fmt.Println("Pod matched!", val.Name, val.Namespace, val.Labels)
-					for _, ctr := range val.Spec.Containers {
-						if strings.Compare(ctr.Name, ctrName) == 0 {
-							fmt.Println("container matched", ctr.Name)
-							//err := setHostPid(val, val.Status.ContainerStatuses[ctridx], &srPodList[sridx])
-							//if err != nil {
-							//	fmt.Println("setHostPid filed", err.Error())
-							//}
-							//fmt.Println("sr.list=", srPodList[sridx].sr)
-							podlabels := make(map[string]string)
-							for idx, val := range val.Labels {
-								idxfix := strings.ReplaceAll(idx, "-", "_")
-								valfix := strings.ReplaceAll(val, "-", "_")
-								podlabels[idxfix] = valfix
-							}
-							for i := 0; i < int(srPodList[sridx].sr.num); i++ {
-								value, _ := gettotalusage(srPodList[sridx], i)
-								uuid := string(srPodList[sridx].sr.uuids[i].uuid[:])[0:40]
+				fmt.Println("container matched", ctr.Name)
+				//err := setHostPid(pod, pod.Status.ContainerStatuses[ctridx], &srPodList[sridx])
+				//if err != nil {
+				//	fmt.Println("setHostPid filed", err.Error())
+				//}
+				//fmt.Println("sr.list=", srPodList[sridx].sr)
+				podlabels := make(map[string]string)
+				for idx, val := range pod.Labels {
+					idxfix := strings.ReplaceAll(idx, "-", "_")
+					valfix := strings.ReplaceAll(val, "-", "_")
+					podlabels[idxfix] = valfix
+				}
+				for i := 0; i < c.Info.DeviceNum(); i++ {
+					uuid := c.Info.DeviceUUID(i)[0:40]
+					memoryTotal := c.Info.DeviceMemoryTotal(i)
+					memoryLimit := c.Info.DeviceMemoryLimit(i)
+					memoryContextSize := c.Info.DeviceMemoryContextSize(i)
+					memoryModuleSize := c.Info.DeviceMemoryModuleSize(i)
+					memoryBufferSize := c.Info.DeviceMemoryBufferSize(i)
+					memoryOffset := c.Info.DeviceMemoryOffset(i)
+					smUtil := c.Info.DeviceSmUtil(i)
+					lastKernelTime := c.Info.LastKernelTime()
 
-								//fmt.Println("uuid=", uuid, "length=", len(uuid))
-								ch <- prometheus.MustNewConstMetric(
-									ctrvGPUdesc,
-									prometheus.GaugeValue,
-									float64(value.total),
-									val.Namespace, val.Name, ctrName, fmt.Sprint(i), uuid, /*,string(sr.sr.uuids[i].uuid[:])*/
-								)
-								ch <- prometheus.MustNewConstMetric(
-									ctrvGPUlimitdesc,
-									prometheus.GaugeValue,
-									float64(srPodList[sridx].sr.limit[i]),
-									val.Namespace, val.Name, ctrName, fmt.Sprint(i), uuid, /*,string(sr.sr.uuids[i].uuid[:])*/
-								)
-								ch <- prometheus.MustNewConstMetric(
-									ctrDeviceMemorydesc,
-									prometheus.CounterValue,
-									float64(value.total),
-									val.Namespace, val.Name, ctrName, fmt.Sprint(i), uuid, fmt.Sprint(value.contextSize), fmt.Sprint(value.moduleSize), fmt.Sprint(value.bufferSize), fmt.Sprint(value.offset),
-								)
-							}
+					//fmt.Println("uuid=", uuid, "length=", len(uuid))
+					ch <- prometheus.MustNewConstMetric(
+						ctrvGPUdesc,
+						prometheus.GaugeValue,
+						float64(memoryTotal),
+						pod.Namespace, pod.Name, ctrName, fmt.Sprint(i), uuid, /*,string(sr.sr.uuids[i].uuid[:])*/
+					)
+					ch <- prometheus.MustNewConstMetric(
+						ctrvGPUlimitdesc,
+						prometheus.GaugeValue,
+						float64(memoryLimit),
+						pod.Namespace, pod.Name, ctrName, fmt.Sprint(i), uuid, /*,string(sr.sr.uuids[i].uuid[:])*/
+					)
+					ch <- prometheus.MustNewConstMetric(
+						ctrDeviceMemorydesc,
+						prometheus.CounterValue,
+						float64(memoryTotal),
+						pod.Namespace, pod.Name, ctrName, fmt.Sprint(i), uuid,
+						fmt.Sprint(memoryContextSize), fmt.Sprint(memoryModuleSize), fmt.Sprint(memoryBufferSize), fmt.Sprint(memoryOffset),
+					)
+					ch <- prometheus.MustNewConstMetric(
+						ctrDeviceUtilizationdesc,
+						prometheus.GaugeValue,
+						float64(smUtil),
+						pod.Namespace, pod.Name, ctrName, fmt.Sprint(i), uuid,
+					)
+					if lastKernelTime > 0 {
+						lastSec := nowSec - lastKernelTime
+						if lastSec < 0 {
+							lastSec = 0
 						}
+						ch <- prometheus.MustNewConstMetric(
+							ctrDeviceLastKernelDesc,
+							prometheus.GaugeValue,
+							float64(lastSec),
+							pod.Namespace, pod.Name, ctrName, fmt.Sprint(i), uuid,
+						)
 					}
 				}
 			}
@@ -263,12 +289,13 @@ func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
 // ClusterManager. Finally, it registers the ClusterManagerCollector with a
 // wrapping Registerer that adds the zone as a label. In this way, the metrics
 // collected by different ClusterManagerCollectors do not collide.
-func NewClusterManager(zone string, reg prometheus.Registerer) *ClusterManager {
+func NewClusterManager(zone string, reg prometheus.Registerer, containerLister *nvidia.ContainerLister) *ClusterManager {
 	c := &ClusterManager{
-		Zone: zone,
+		Zone:            zone,
+		containerLister: containerLister,
 	}
 
-	informerFactory := informers.NewSharedInformerFactoryWithOptions(clientset, time.Hour*1)
+	informerFactory := informers.NewSharedInformerFactoryWithOptions(containerLister.Clientset(), time.Hour*1)
 	c.PodLister = informerFactory.Core().V1().Pods().Lister()
 	stopCh := make(chan struct{})
 	informerFactory.Start(stopCh)
@@ -278,26 +305,16 @@ func NewClusterManager(zone string, reg prometheus.Registerer) *ClusterManager {
 	return c
 }
 
-func initMetrics() {
+func initMetrics(containerLister *nvidia.ContainerLister) {
 	// Since we are dealing with custom Collector implementations, it might
 	// be a good idea to try it out with a pedantic registry.
-	klog.Info("Initializing metrics for volcano vgpu monitor")
+	klog.Info("Initializing metrics for vGPUmonitor")
 	reg := prometheus.NewRegistry()
 	//reg := prometheus.NewPedanticRegistry()
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		fmt.Println(err.Error())
-		return
-	}
-	clientset, err = kubernetes.NewForConfig(config)
-	if err != nil {
-		fmt.Println(err.Error())
-		return
-	}
 
 	// Construct cluster managers. In real code, we would assign them to
 	// variables to then do something with them.
-	NewClusterManager("vGPU", reg)
+	NewClusterManager("vGPU", reg, containerLister)
 
 	http.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	log.Fatal(http.ListenAndServe(":9394", nil))
