@@ -62,7 +62,8 @@ func (r *DeviceRegister) apiDevices() *[]*util.DeviceInfo {
 		} else {
 			klog.V(3).Infoln("nvml registered device id=", dev.ID, "memory=", *ndev.Memory, "type=", *ndev.Model)
 		}
-		registeredmem := int32(*ndev.Memory)
+		registeredmem := int32(*ndev.Memory) / int32(config.GPUMemoryFactor)
+		klog.V(3).Infoln("GPUMemoryFactor=", config.GPUMemoryFactor, "registeredmem=", registeredmem)
 		res = append(res, &util.DeviceInfo{
 			Id:     dev.ID,
 			Count:  int32(config.DeviceSplitCount),
