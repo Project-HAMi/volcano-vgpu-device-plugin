@@ -177,6 +177,7 @@ EOF
 You can validate device memory using nvidia-smi inside container:
 
 ![img](./doc/hard_limit.jpg)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FProject-HAMi%2Fvolcano-vgpu-device-plugin.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FProject-HAMi%2Fvolcano-vgpu-device-plugin?ref=badge_shield)
 
 > **WARNING:** *if you don't request GPUs when using the device plugin with NVIDIA images all
 > the GPUs on the machine will be exposed inside your container.
@@ -216,3 +217,7 @@ see GPUs re-registering themselves after you node comes back online.
 Upgrading the device plugin is a more complex task. It is recommended to drain GPU tasks as
 we cannot guarantee that GPU tasks will survive a rolling upgrade.
 However we make best efforts to preserve GPU tasks during an upgrade.
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FProject-HAMi%2Fvolcano-vgpu-device-plugin.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FProject-HAMi%2Fvolcano-vgpu-device-plugin?ref=badge_large)
