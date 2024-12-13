@@ -64,7 +64,7 @@ func GetPendingPod(node string) (*v1.Pod, error) {
 		return nil, err
 	}
 
-	oldestPod := getOldestPod(podList.Items)
+	oldestPod := getOldestPod(podList.Items, node)
 	if oldestPod == nil {
 		return nil, fmt.Errorf("cannot get valid pod")
 	}
@@ -72,15 +72,17 @@ func GetPendingPod(node string) (*v1.Pod, error) {
 	return oldestPod, nil
 }
 
-func getOldestPod(pods []v1.Pod) *v1.Pod {
+func getOldestPod(pods []v1.Pod, nodename string) *v1.Pod {
 	if len(pods) == 0 {
 		return nil
 	}
 	oldest := pods[0]
 	for _, pod := range pods {
-		klog.V(4).Infof("pod %s, predicate time: %s", pod.Name, pod.Annotations[AssignedTimeAnnotations])
-		if getPredicateTimeFromPodAnnotation(&oldest) > getPredicateTimeFromPodAnnotation(&pod) {
-			oldest = pod
+		if pod.Annotations[AssignedNodeAnnotations] == nodename {
+			klog.V(4).Infof("pod %s, predicate time: %s", pod.Name, pod.Annotations[AssignedTimeAnnotations])
+			if getPredicateTimeFromPodAnnotation(&oldest) > getPredicateTimeFromPodAnnotation(&pod) {
+				oldest = pod
+			}
 		}
 	}
 	klog.V(4).Infof("oldest pod %#v, predicate time: %#v", oldest.Name,
