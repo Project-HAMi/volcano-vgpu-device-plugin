@@ -69,7 +69,7 @@ func GetPendingPod(node string) (*v1.Pod, error) {
 		return nil, err
 	}
 
-	oldestPod := getOldestPod(podList.Items)
+	oldestPod := getOldestPod(podList.Items, node)
 	if oldestPod == nil {
 		return nil, fmt.Errorf("cannot get valid pod")
 	}
@@ -77,7 +77,7 @@ func GetPendingPod(node string) (*v1.Pod, error) {
 	return oldestPod, nil
 }
 
-func getOldestPod(pods []v1.Pod) *v1.Pod {
+func getOldestPod(pods []v1.Pod, nodename string) *v1.Pod {
 	if len(pods) == 0 {
 		return nil
 	}
@@ -93,6 +93,13 @@ func getOldestPod(pods []v1.Pod) *v1.Pod {
 			continue
 		} else {
 			if strings.Compare(phase, DeviceBindAllocating) != 0 {
+				continue
+			}
+		}
+		if assignedNodeAnnotations, ok := pod.Annotations[AssignedNodeAnnotations]; !ok {
+			continue
+		} else {
+			if strings.Compare(assignedNodeAnnotations, nodename) != 0 {
 				continue
 			}
 		}
