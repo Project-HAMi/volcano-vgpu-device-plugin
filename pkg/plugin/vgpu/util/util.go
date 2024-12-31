@@ -27,11 +27,13 @@ import (
 	"strconv"
 	"strings"
 
+	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"volcano.sh/k8s-device-plugin/pkg/lock"
+	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/config"
 )
 
 var DevicesToHandle []string
@@ -336,4 +338,38 @@ func PatchPodAnnotations(pod *v1.Pod, annotations map[string]string) error {
 		klog.Infof("patch pod %v failed, %v", pod.Name, err)
 	}
 	return err
+}
+
+func LoadConfigFromCM(cmName string) (*config.Config, error) {
+	lock.NewClient()
+	cm, err := lock.GetClient().CoreV1().ConfigMaps("kube-system").Get(context.Background(), cmName, metav1.GetOptions{})
+	if err != nil {
+		cm, err = lock.GetClient().CoreV1().ConfigMaps("volcano-system").Get(context.Background(), cmName, metav1.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+	}
+	data, ok := cm.Data["device-config.yaml"]
+	if !ok {
+		return nil, errors.New("data-config.yaml not found")
+	}
+	var yamlData config.Config
+	err = yaml.Unmarshal([]byte(data), &yamlData)
+	if err != nil {
+		return nil, err
+	}
+	return &yamlData, nil
+}
+
+func LoadConfig(path string) (*config.Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var yamlData config.Config
+	err = yaml.Unmarshal(data, &yamlData)
+	if err != nil {
+		return nil, err
+	}
+	return &yamlData, nil
 }
