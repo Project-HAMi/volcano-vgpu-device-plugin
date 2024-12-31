@@ -17,6 +17,7 @@ limitations under the License.
 package vgpu
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -65,8 +66,11 @@ type NvidiaDevicePlugin struct {
 	deviceListEnvvar string
 	allocatePolicy   gpuallocator.Policy
 	socket           string
+	schedulerConfig  config.NvidiaConfig
+	operatingMode    string
 
 	virtualDevices []*pluginapi.Device
+	migCurrent     config.MigPartedSpec
 
 	server        *grpc.Server
 	cachedDevices []*Device
@@ -76,21 +80,81 @@ type NvidiaDevicePlugin struct {
 	migStrategy   string
 }
 
+var (
+	// DevicePluginFilterDevice need device-plugin filter this device, don't register this device.
+	DevicePluginFilterDevice *config.FilterDevice
+)
+
+func readFromConfigFile(sConfig *config.NvidiaConfig) (string, error) {
+	jsonbyte, err := os.ReadFile("/config/config.json")
+	mode := "hami-core"
+	if err != nil {
+		return "", err
+	}
+	var deviceConfigs config.DevicePluginConfigs
+	err = json.Unmarshal(jsonbyte, &deviceConfigs)
+	if err != nil {
+		return "", err
+	}
+	klog.Infof("Device Plugin Configs: %v", fmt.Sprintf("%v", deviceConfigs))
+	for _, val := range deviceConfigs.Nodeconfig {
+		if os.Getenv("NODE_NAME") == val.Name {
+			klog.Infof("Reading config from file %s", val.Name)
+			if val.Devicememoryscaling > 0 {
+				sConfig.DeviceMemoryScaling = val.Devicememoryscaling
+			}
+			if val.Devicecorescaling > 0 {
+				sConfig.DeviceCoreScaling = val.Devicecorescaling
+			}
+			if val.Devicesplitcount > 0 {
+				sConfig.DeviceSplitCount = val.Devicesplitcount
+			}
+			if val.FilterDevice != nil && (len(val.FilterDevice.UUID) > 0 || len(val.FilterDevice.Index) > 0) {
+				DevicePluginFilterDevice = val.FilterDevice
+			}
+			if len(val.OperatingMode) > 0 {
+				mode = val.OperatingMode
+			}
+			klog.Infof("FilterDevice: %v", val.FilterDevice)
+		}
+	}
+	return mode, nil
+}
+
 // NewNvidiaDevicePlugin returns an initialized NvidiaDevicePlugin
 func NewNvidiaDevicePlugin(resourceName string, deviceCache *DeviceCache, allocatePolicy gpuallocator.Policy, socket string) *NvidiaDevicePlugin {
-	return &NvidiaDevicePlugin{
-		deviceCache:    deviceCache,
-		resourceName:   resourceName,
-		allocatePolicy: allocatePolicy,
-		socket:         socket,
-		migStrategy:    "none",
-
+	configs, err := util.LoadConfigFromCM("volcano-vgpu-device-config")
+	if err != nil {
+		klog.InfoS("configMap not found", err.Error())
+	}
+	nvidiaConfig := config.NvidiaConfig{}
+	if configs != nil {
+		nvidiaConfig = configs.NvidiaConfig
+	}
+	nvidiaConfig.DeviceSplitCount = config.DeviceSplitCount
+	nvidiaConfig.DeviceCoreScaling = config.DeviceCoresScaling
+	nvidiaConfig.GPUMemoryFactor = config.GPUMemoryFactor
+	mode, err := readFromConfigFile(&nvidiaConfig)
+	if err != nil {
+		klog.InfoS("readFrom device cm error", err.Error())
+		return nil
+	}
+	klog.Infoln("Loaded config=", nvidiaConfig)
+	dp := &NvidiaDevicePlugin{
+		deviceCache:     deviceCache,
+		resourceName:    resourceName,
+		allocatePolicy:  allocatePolicy,
+		socket:          socket,
+		migStrategy:     "none",
+		operatingMode:   mode,
+		schedulerConfig: nvidiaConfig,
 		// These will be reinitialized every
 		// time the plugin server is restarted.
 		server: nil,
 		health: nil,
 		stop:   nil,
 	}
+	return dp
 }
 
 // NewNvidiaDevicePlugin returns an initialized NvidiaDevicePlugin

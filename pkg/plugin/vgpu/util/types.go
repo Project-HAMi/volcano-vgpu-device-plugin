@@ -16,6 +16,8 @@ limitations under the License.
 
 package util
 
+import "volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/config"
+
 const (
 	AssignedTimeAnnotations          = "volcano.sh/vgpu-time"
 	AssignedIDsAnnotations           = "volcano.sh/vgpu-ids-new"
@@ -89,12 +91,14 @@ type ContainerDevices []ContainerDevice
 type PodDevices []ContainerDevices
 
 type DeviceInfo struct {
-	Id                   string   `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Count                int32    `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`
-	Devmem               int32    `protobuf:"varint,3,opt,name=devmem,proto3" json:"devmem,omitempty"`
-	Type                 string   `protobuf:"bytes,4,opt,name=type,proto3" json:"type,omitempty"`
-	Health               bool     `protobuf:"varint,5,opt,name=health,proto3" json:"health,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
+	Id                   string            `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Count                int32             `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`
+	Devmem               int32             `protobuf:"varint,3,opt,name=devmem,proto3" json:"devmem,omitempty"`
+	Type                 string            `protobuf:"bytes,4,opt,name=type,proto3" json:"type,omitempty"`
+	Health               bool              `protobuf:"varint,5,opt,name=health,proto3" json:"health,omitempty"`
+	Mode                 string            `json:"mode,omitempty"`
+	MIGTemplate          []config.Geometry `json:"migtemplate,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
+	XXX_unrecognized     []byte            `json:"-"`
+	XXX_sizecache        int32             `json:"-"`
 }

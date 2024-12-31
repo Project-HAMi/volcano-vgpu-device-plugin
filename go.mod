@@ -7,17 +7,16 @@ require (
 	github.com/NVIDIA/go-nvml v0.12.4-0
 	github.com/NVIDIA/gpu-monitoring-tools v0.0.0-20201109160820-d08ea3cdcce4
 	github.com/fsnotify/fsnotify v1.4.9
-	github.com/mitchellh/gox v1.0.1 // indirect
 	github.com/prometheus/client_golang v1.0.0
 	github.com/prometheus/common v0.4.1
 	github.com/spf13/cobra v0.0.5
 	github.com/spf13/viper v1.3.2
 	github.com/stretchr/testify v1.9.0
 	github.com/urfave/cli/v2 v2.4.0
-	golang.org/x/exp v0.0.0-20190312203227-4b39c73a6495
 	golang.org/x/net v0.0.0-20200421231249-e086a090c8fd
 	google.golang.org/grpc v1.32.0
-	google.golang.org/protobuf v1.34.2
+	google.golang.org/protobuf v1.34.2 // indirect
+	gopkg.in/yaml.v2 v2.2.8
 	k8s.io/api v0.18.2
 	k8s.io/apimachinery v0.18.2
 	k8s.io/client-go v0.18.2
