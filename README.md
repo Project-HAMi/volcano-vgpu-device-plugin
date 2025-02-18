@@ -1,5 +1,7 @@
 # Volcano vgpu device plugin for Kubernetes
 
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FProject-HAMi%2Fvolcano-vgpu-device-plugin.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FProject-HAMi%2Fvolcano-vgpu-device-plugin?ref=badge_shield)
+
 **Note**:
 
 Volcano vgpu device-plugin can provide device-sharing mechanism for NVIDIA devices managed by volcano.
@@ -177,7 +179,6 @@ EOF
 You can validate device memory using nvidia-smi inside container:
 
 ![img](./doc/hard_limit.jpg)
-[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FProject-HAMi%2Fvolcano-vgpu-device-plugin.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FProject-HAMi%2Fvolcano-vgpu-device-plugin?ref=badge_shield)
 
 > **WARNING:** *if you don't request GPUs when using the device plugin with NVIDIA images all
 > the GPUs on the machine will be exposed inside your container.

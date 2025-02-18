@@ -24,16 +24,14 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
-	nodeutil "k8s.io/kubernetes/pkg/util/node"
+	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/util"
 )
 
 type KubeInteractor struct {
@@ -92,29 +90,6 @@ func (ki *KubeInteractor) GetPendingPodsOnNode() ([]v1.Pod, error) {
 	return res, nil
 }
 
-func (ki *KubeInteractor) PatchGPUResourceOnNode(gpuCount int) error {
-	var err error
-	err = wait.PollImmediate(1*time.Second, 10*time.Second, func() (bool, error) {
-		var node *v1.Node
-		node, err = ki.clientset.CoreV1().Nodes().Get(context.TODO(), ki.nodeName, metav1.GetOptions{})
-		if err != nil {
-			klog.V(4).Infof("failed to get node %s: %v", ki.nodeName, err)
-			return false, nil
-		}
-
-		newNode := node.DeepCopy()
-		newNode.Status.Capacity[VolcanoGPUNumber] = *resource.NewQuantity(int64(gpuCount), resource.DecimalSI)
-		newNode.Status.Allocatable[VolcanoGPUNumber] = *resource.NewQuantity(int64(gpuCount), resource.DecimalSI)
-		_, _, err = nodeutil.PatchNodeStatus(ki.clientset.CoreV1(), types.NodeName(ki.nodeName), node, newNode)
-		if err != nil {
-			klog.V(4).Infof("failed to patch volcano gpu resource: %v", err)
-			return false, nil
-		}
-		return true, nil
-	})
-	return err
-}
-
 func (ki *KubeInteractor) PatchUnhealthyGPUListOnNode(devices []*Device) error {
 	var err error
 	unhealthyGPUsStr := ""
@@ -144,7 +119,7 @@ func (ki *KubeInteractor) PatchUnhealthyGPUListOnNode(devices []*Device) error {
 		} else {
 			delete(newNode.Annotations, UnhealthyGPUIDs)
 		}
-		_, _, err = nodeutil.PatchNodeStatus(ki.clientset.CoreV1(), types.NodeName(ki.nodeName), node, newNode)
+		err = util.PatchNodeAnnotations(node, newNode.Annotations)
 		if err != nil {
 			klog.V(4).Infof("failed to patch volcano unhealthy gpu list %s: %v", unhealthyGPUsStr, err)
 			return false, nil

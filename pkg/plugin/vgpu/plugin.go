@@ -114,6 +114,7 @@ func readFromConfigFile(sConfig *config.NvidiaConfig) (string, error) {
 			}
 			if len(val.OperatingMode) > 0 {
 				mode = val.OperatingMode
+				config.Mode = mode
 			}
 			klog.Infof("FilterDevice: %v", val.FilterDevice)
 		}
