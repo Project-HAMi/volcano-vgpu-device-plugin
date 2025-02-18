@@ -69,6 +69,7 @@ func (r *DeviceRegister) apiDevices() *[]*util.DeviceInfo {
 			Id:     dev.ID,
 			Count:  int32(config.DeviceSplitCount),
 			Devmem: registeredmem,
+			Mode:   config.Mode,
 			Type:   fmt.Sprintf("%v-%v", "NVIDIA", *ndev.Model),
 			Health: strings.EqualFold(dev.Health, "healthy"),
 		})

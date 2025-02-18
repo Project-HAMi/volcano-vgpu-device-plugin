@@ -143,7 +143,7 @@ func DecodeNodeDevices(str string) []*DeviceInfo {
 func EncodeNodeDevices(dlist []*DeviceInfo) string {
 	tmp := ""
 	for _, val := range dlist {
-		tmp += val.Id + "," + strconv.FormatInt(int64(val.Count), 10) + "," + strconv.Itoa(int(val.Devmem)) + "," + val.Type + "," + strconv.FormatBool(val.Health) + ":"
+		tmp += val.Id + "," + strconv.FormatInt(int64(val.Count), 10) + "," + strconv.Itoa(int(val.Devmem)) + "," + val.Type + "," + strconv.FormatBool(val.Health) + "," + val.Mode + ":"
 	}
 	klog.V(3).Infoln("Encoded node Devices", tmp)
 	return tmp

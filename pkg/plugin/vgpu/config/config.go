@@ -37,6 +37,7 @@ type NvidiaConfig struct {
 var (
 	DeviceSplitCount   uint
 	GPUMemoryFactor    uint
+	Mode               string
 	DeviceCoresScaling float64
 	NodeName           string
 	RuntimeSocketFlag  string
@@ -55,7 +56,10 @@ type MigTemplateUsage struct {
 	InUse  bool   `json:"inuse,omitempty"`
 }
 
-type Geometry []MigTemplate
+type Geometry struct {
+	Group     string        `yaml:"group"`
+	Instances []MigTemplate `yaml:"geometries"`
+}
 
 type MIGS []MigTemplateUsage
 

@@ -130,6 +130,7 @@ kubernetes.tar.gz
 coverage.txt
 
 updateso.sh
+volcano-vgpu-device-plugin
 
 lib/nvidia/libvgpu/build
 

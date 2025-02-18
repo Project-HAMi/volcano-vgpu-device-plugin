@@ -135,14 +135,6 @@ func (m *NvidiaDevicePlugin) Name() string {
 // and starts the device healthchecks.
 func (m *NvidiaDevicePlugin) Start() error {
 	m.initialize()
-	// must be called after initialize
-	if m.resourceName == VolcanoGPUMemory {
-		if err := m.kubeInteractor.PatchGPUResourceOnNode(len(m.physicalDevices)); err != nil {
-			log.Printf("failed to patch gpu resource: %v", err)
-			m.cleanup()
-			return fmt.Errorf("failed to patch gpu resource: %v", err)
-		}
-	}
 
 	err := m.Serve()
 	if err != nil {
@@ -261,7 +253,7 @@ func (m *NvidiaDevicePlugin) GetDevicePluginOptions(context.Context, *pluginapi.
 // ListAndWatch lists devices and update that list according to the health status
 func (m *NvidiaDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.DevicePlugin_ListAndWatchServer) error {
 	if m.resourceName == VolcanoGPUMemory {
-		klog.Infoln("virtualDevices=-0=-=-=-=", len(m.virtualDevices))
+		klog.Infoln("virtualDevices=", len(m.virtualDevices))
 		err := s.Send(&pluginapi.ListAndWatchResponse{Devices: m.virtualDevices})
 		if err != nil {
 			log.Fatalf("failed sending devices %d: %v", len(m.virtualDevices), err)
