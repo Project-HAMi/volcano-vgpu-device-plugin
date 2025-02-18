@@ -18,6 +18,7 @@ package vgpu
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
@@ -69,7 +70,7 @@ func (r *DeviceRegister) apiDevices() *[]*util.DeviceInfo {
 			Count:  int32(config.DeviceSplitCount),
 			Devmem: registeredmem,
 			Type:   fmt.Sprintf("%v-%v", "NVIDIA", *ndev.Model),
-			Health: dev.Health == "healthy",
+			Health: strings.EqualFold(dev.Health, "healthy"),
 		})
 	}
 	return &res
