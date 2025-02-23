@@ -349,9 +349,9 @@ func LoadConfigFromCM(cmName string) (*config.Config, error) {
 			return nil, err
 		}
 	}
-	data, ok := cm.Data["device-config.yaml"]
+	data, ok := cm.Data[DeviceConfigurationConfigMapKey]
 	if !ok {
-		return nil, errors.New("data-config.yaml not found")
+		return nil, fmt.Errorf("%v not found in ConfigMap %v", DeviceConfigurationConfigMapKey, cmName)
 	}
 	var yamlData config.Config
 	err = yaml.Unmarshal([]byte(data), &yamlData)

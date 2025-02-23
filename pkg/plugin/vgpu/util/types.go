@@ -53,6 +53,9 @@ const (
 
 	// DeviceName used to indicate this device
 	VGPUDeviceName = "hamivgpu"
+
+	// DeviceConfigurationConfigMapKey specifies in what ConfigMap key the device configuration should be stored
+	DeviceConfigurationConfigMapKey = "device-config.yaml"
 )
 
 var (
