@@ -200,9 +200,8 @@ spec:
       priorityClassName: "system-node-critical"
       serviceAccount: volcano-device-plugin
       containers:
-      - image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.9.3
-        command: ["sleep","infinity"]
-        #args: ["--device-split-count=10"]
+      - image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.9.4
+        args: ["--device-split-count=10"]
         lifecycle:
           postStart:
             exec:
