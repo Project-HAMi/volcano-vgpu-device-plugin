@@ -27,11 +27,13 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
+	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 	"volcano.sh/k8s-device-plugin/pkg/lock"
 	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/config"
 )
@@ -372,4 +374,37 @@ func LoadConfig(path string) (*config.Config, error) {
 		return nil, err
 	}
 	return &yamlData, nil
+}
+
+func GenerateVirtualDeviceID(id uint, fakeCounter uint) string {
+	return fmt.Sprintf("%d-%d", id, fakeCounter)
+}
+
+// GetDevices returns virtual devices and all physical devices by index.
+func GetDevices(gpuMemoryFactor uint) ([]*pluginapi.Device, map[uint]string) {
+	n, err := nvml.GetDeviceCount()
+	if err != nil {
+		klog.Fatalf("call nvml.GetDeviceCount with error: %v", err)
+	}
+
+	var virtualDevs []*pluginapi.Device
+	deviceByIndex := map[uint]string{}
+	for i := uint(0); i < n; i++ {
+		d, err := nvml.NewDevice(i)
+		if err != nil {
+			klog.Fatalf("call nvml.NewDevice with error: %v", err)
+		}
+		id := i
+		deviceByIndex[id] = d.UUID
+		deviceGPUMemory := uint(*d.Memory)
+		for j := uint(0); j < deviceGPUMemory/gpuMemoryFactor; j++ {
+			fakeID := GenerateVirtualDeviceID(id, j)
+			virtualDevs = append(virtualDevs, &pluginapi.Device{
+				ID:     fakeID,
+				Health: pluginapi.Healthy,
+			})
+		}
+	}
+
+	return virtualDevs, deviceByIndex
 }
