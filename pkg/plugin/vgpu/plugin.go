@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 	"volcano.sh/k8s-device-plugin/pkg/lock"
-	"volcano.sh/k8s-device-plugin/pkg/plugin/nvidia"
 	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/config"
 	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/util"
 
@@ -187,7 +186,7 @@ func (m *NvidiaDevicePlugin) initialize() {
 	m.stop = make(chan interface{})
 	check(err)
 
-	m.virtualDevices, _ = nvidia.GetDevices(config.GPUMemoryFactor)
+	m.virtualDevices, _ = util.GetDevices(config.GPUMemoryFactor)
 }
 
 func (m *NvidiaDevicePlugin) cleanup() {
