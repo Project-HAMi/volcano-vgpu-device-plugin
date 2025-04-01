@@ -100,6 +100,11 @@ func (r *DeviceRegister) RegisterInAnnotation() error {
 func (r *DeviceRegister) WatchAndRegister() {
 	klog.Infof("into WatchAndRegister")
 	for {
+		if len(config.Mode) == 0 {
+			klog.V(5).Info("register skipped, waiting for device config to be loaded")
+			time.Sleep(time.Second * 2)
+			continue
+		}
 		err := r.RegisterInAnnotation()
 		if err != nil {
 			klog.Errorf("register error, %v", err)

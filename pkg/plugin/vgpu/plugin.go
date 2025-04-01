@@ -17,16 +17,19 @@ limitations under the License.
 package vgpu
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"path"
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v2"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 	"volcano.sh/k8s-device-plugin/pkg/lock"
@@ -85,8 +88,8 @@ var (
 )
 
 func readFromConfigFile(sConfig *config.NvidiaConfig) (string, error) {
+	config.Mode = "hami-core"
 	jsonbyte, err := os.ReadFile("/config/config.json")
-	mode := "hami-core"
 	if err != nil {
 		return "", err
 	}
@@ -112,13 +115,12 @@ func readFromConfigFile(sConfig *config.NvidiaConfig) (string, error) {
 				DevicePluginFilterDevice = val.FilterDevice
 			}
 			if len(val.OperatingMode) > 0 {
-				mode = val.OperatingMode
-				config.Mode = mode
+				config.Mode = val.OperatingMode
 			}
 			klog.Infof("FilterDevice: %v", val.FilterDevice)
 		}
 	}
-	return mode, nil
+	return config.Mode, nil
 }
 
 // NewNvidiaDevicePlugin returns an initialized NvidiaDevicePlugin
@@ -216,6 +218,29 @@ func (m *NvidiaDevicePlugin) Start() error {
 		return err
 	}
 	log.Printf("Registered device plugin for '%s' with Kubelet", m.resourceName)
+
+	if m.operatingMode == "mig" {
+		cmd := exec.Command("nvidia-mig-parted", "export")
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		if err != nil {
+			klog.Fatalf("nvidia-mig-parted failed with %s\n", err)
+		}
+		outStr := stdout.Bytes()
+		yaml.Unmarshal(outStr, &m.migCurrent)
+		os.WriteFile("/tmp/migconfig.yaml", outStr, os.ModePerm)
+		if len(m.migCurrent.MigConfigs["current"]) == 1 && len(m.migCurrent.MigConfigs["current"][0].Devices) == 0 {
+			idx := 0
+			m.migCurrent.MigConfigs["current"][0].Devices = make([]int32, 0)
+			for idx < util.GetDeviceNums() {
+				m.migCurrent.MigConfigs["current"][0].Devices = append(m.migCurrent.MigConfigs["current"][0].Devices, int32(idx))
+				idx++
+			}
+		}
+		klog.Infoln("Mig export", m.migCurrent)
+	}
 
 	if strings.Compare(m.migStrategy, "none") == 0 {
 		m.deviceCache.AddNotifyChannel("plugin", m.health)
@@ -430,6 +455,10 @@ func (m *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 			return &pluginapi.AllocateResponse{}, errors.New("device number not matched")
 		}
 
+		response := pluginapi.ContainerAllocateResponse{}
+		response.Envs = make(map[string]string)
+		response.Envs["NVIDIA_VISIBLE_DEVICES"] = strings.Join(m.GetContainerDeviceStrArray(devreq), ",")
+
 		err = util.EraseNextDeviceTypeFromAnnotation(util.NvidiaGPUDevice, *current)
 		if err != nil {
 			klog.Errorln("Erase annotation failed", err.Error())
@@ -437,51 +466,46 @@ func (m *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 			return &pluginapi.AllocateResponse{}, err
 		}
 
-		response := pluginapi.ContainerAllocateResponse{}
-		response.Envs = make(map[string]string)
-		for i, dev := range devreq {
-			limitKey := fmt.Sprintf("CUDA_DEVICE_MEMORY_LIMIT_%v", i)
-			response.Envs[limitKey] = fmt.Sprintf("%vm", dev.Usedmem*int32(config.GPUMemoryFactor))
-			tmp := response.Envs["NVIDIA_VISIBLE_DEVICES"]
-			if i > 0 {
-				response.Envs["NVIDIA_VISIBLE_DEVICES"] = fmt.Sprintf("%v,%v", tmp, dev.UUID)
-			} else {
-				response.Envs["NVIDIA_VISIBLE_DEVICES"] = dev.UUID
-			}
-		}
-		response.Envs["CUDA_DEVICE_SM_LIMIT"] = fmt.Sprint(devreq[0].Usedcores)
-		response.Envs["CUDA_DEVICE_MEMORY_SHARED_CACHE"] = fmt.Sprintf("/tmp/vgpu/%v.cache", uuid.NewUUID())
+		if m.operatingMode != "mig" {
 
-		cacheFileHostDirectory := "/tmp/vgpu/containers/" + string(current.UID) + "_" + currentCtr.Name
-		os.MkdirAll(cacheFileHostDirectory, 0777)
-		os.Chmod(cacheFileHostDirectory, 0777)
-		os.MkdirAll("/tmp/vgpulock", 0777)
-		os.Chmod("/tmp/vgpulock", 0777)
-		hostHookPath := os.Getenv("HOOK_PATH")
-
-		response.Mounts = append(response.Mounts,
-			&pluginapi.Mount{ContainerPath: "/usr/local/vgpu/libvgpu.so",
-				HostPath: hostHookPath + "/libvgpu.so",
-				ReadOnly: true},
-			&pluginapi.Mount{ContainerPath: "/tmp/vgpu",
-				HostPath: cacheFileHostDirectory,
-				ReadOnly: false},
-			&pluginapi.Mount{ContainerPath: "/tmp/vgpulock",
-				HostPath: "/tmp/vgpulock",
-				ReadOnly: false},
-		)
-		found := false
-		for _, val := range currentCtr.Env {
-			if strings.Compare(val.Name, "CUDA_DISABLE_CONTROL") == 0 {
-				found = true
-				break
+			for i, dev := range devreq {
+				limitKey := fmt.Sprintf("CUDA_DEVICE_MEMORY_LIMIT_%v", i)
+				response.Envs[limitKey] = fmt.Sprintf("%vm", dev.Usedmem*int32(config.GPUMemoryFactor))
 			}
-		}
-		if !found {
-			response.Mounts = append(response.Mounts, &pluginapi.Mount{ContainerPath: "/etc/ld.so.preload",
-				HostPath: hostHookPath + "/ld.so.preload",
-				ReadOnly: true},
+			response.Envs["CUDA_DEVICE_SM_LIMIT"] = fmt.Sprint(devreq[0].Usedcores)
+			response.Envs["CUDA_DEVICE_MEMORY_SHARED_CACHE"] = fmt.Sprintf("/tmp/vgpu/%v.cache", uuid.NewUUID())
+
+			cacheFileHostDirectory := "/tmp/vgpu/containers/" + string(current.UID) + "_" + currentCtr.Name
+			os.MkdirAll(cacheFileHostDirectory, 0777)
+			os.Chmod(cacheFileHostDirectory, 0777)
+			os.MkdirAll("/tmp/vgpulock", 0777)
+			os.Chmod("/tmp/vgpulock", 0777)
+			hostHookPath := os.Getenv("HOOK_PATH")
+
+			response.Mounts = append(response.Mounts,
+				&pluginapi.Mount{ContainerPath: "/usr/local/vgpu/libvgpu.so",
+					HostPath: hostHookPath + "/libvgpu.so",
+					ReadOnly: true},
+				&pluginapi.Mount{ContainerPath: "/tmp/vgpu",
+					HostPath: cacheFileHostDirectory,
+					ReadOnly: false},
+				&pluginapi.Mount{ContainerPath: "/tmp/vgpulock",
+					HostPath: "/tmp/vgpulock",
+					ReadOnly: false},
 			)
+			found := false
+			for _, val := range currentCtr.Env {
+				if strings.Compare(val.Name, "CUDA_DISABLE_CONTROL") == 0 {
+					found = true
+					break
+				}
+			}
+			if !found {
+				response.Mounts = append(response.Mounts, &pluginapi.Mount{ContainerPath: "/etc/ld.so.preload",
+					HostPath: hostHookPath + "/ld.so.preload",
+					ReadOnly: true},
+				)
+			}
 		}
 		responses.ContainerResponses = append(responses.ContainerResponses, &response)
 	}
@@ -594,4 +618,128 @@ func (m *NvidiaDevicePlugin) apiEnvs(envvar string, deviceIDs []string) map[stri
 	return map[string]string{
 		envvar: strings.Join(deviceIDs, ","),
 	}
+}
+
+func (m *NvidiaDevicePlugin) ApplyMigTemplate() {
+	data, err := yaml.Marshal(m.migCurrent)
+	if err != nil {
+		klog.Error("marshal failed", err.Error())
+	}
+	klog.Infoln("Applying data=", string(data))
+	os.WriteFile("/tmp/migconfig.yaml", data, os.ModePerm)
+	cmd := exec.Command("nvidia-mig-parted", "apply", "-f", "/tmp/migconfig.yaml")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	if err != nil {
+		klog.Fatalf("nvidia-mig-parted failed with %s\n", err)
+	}
+	outStr := stdout.String()
+	klog.Infoln("Mig apply", outStr)
+}
+
+func (m *NvidiaDevicePlugin) GetContainerDeviceStrArray(c util.ContainerDevices) []string {
+	tmp := []string{}
+	needsreset := false
+	position := 0
+	for _, val := range c {
+		if !strings.Contains(val.UUID, "[") {
+			tmp = append(tmp, val.UUID)
+		} else {
+			devtype, devindex := util.GetIndexAndTypeFromUUID(val.UUID)
+			position, needsreset = m.GenerateMigTemplate(devtype, devindex, val)
+			if needsreset {
+				m.ApplyMigTemplate()
+			}
+			tmp = append(tmp, util.GetMigUUIDFromIndex(val.UUID, position))
+		}
+	}
+	klog.V(3).Infoln("mig current=", m.migCurrent, ":", needsreset, "position=", position, "uuid lists", tmp)
+	return tmp
+}
+
+func (m *NvidiaDevicePlugin) GenerateMigTemplate(devtype string, devindex int, val util.ContainerDevice) (int, bool) {
+	needsreset := false
+	position := -1 // Initialize to an invalid position
+
+	for _, migTemplate := range m.schedulerConfig.MigGeometriesList {
+		if containsModel(devtype, migTemplate.Models) {
+			klog.InfoS("type found", "Type", devtype, "Models", strings.Join(migTemplate.Models, ", "))
+
+			templateGroupName, pos, err := util.ExtractMigTemplatesFromUUID(val.UUID)
+			if err != nil {
+				klog.ErrorS(err, "failed to extract template index from UUID", "UUID", val.UUID)
+				return -1, false
+			}
+
+			templateIdx := -1
+			for i, migTemplateEntry := range migTemplate.Geometries {
+				if migTemplateEntry.Group == templateGroupName {
+					templateIdx = i
+					break
+				}
+			}
+
+			if templateIdx < 0 || templateIdx >= len(migTemplate.Geometries) {
+				klog.ErrorS(nil, "invalid template index extracted from UUID", "UUID", val.UUID, "Index", templateIdx)
+				return -1, false
+			}
+
+			position = pos
+
+			v := migTemplate.Geometries[templateIdx].Instances
+
+			for migidx, migpartedDev := range m.migCurrent.MigConfigs["current"] {
+				if containsDevice(devindex, migpartedDev.Devices) {
+					for _, migTemplateEntry := range v {
+						currentCount, ok := migpartedDev.MigDevices[migTemplateEntry.Name]
+						expectedCount := migTemplateEntry.Count
+
+						if !ok || currentCount != expectedCount {
+							needsreset = true
+							klog.InfoS("updated mig device count", "Template", v)
+						} else {
+							klog.InfoS("incremented mig device count", "TemplateName", migTemplateEntry.Name, "Count", currentCount+1)
+						}
+					}
+
+					if needsreset {
+						for k := range m.migCurrent.MigConfigs["current"][migidx].MigDevices {
+							delete(m.migCurrent.MigConfigs["current"][migidx].MigDevices, k)
+						}
+
+						for _, migTemplateEntry := range v {
+							m.migCurrent.MigConfigs["current"][migidx].MigDevices[migTemplateEntry.Name] = migTemplateEntry.Count
+							m.migCurrent.MigConfigs["current"][migidx].MigEnabled = true
+						}
+					}
+					break
+				}
+			}
+			break
+		}
+	}
+
+	return position, needsreset
+}
+
+// Helper function to check if a model is in the list of models.
+func containsModel(target string, models []string) bool {
+	for _, model := range models {
+		if strings.Contains(target, model) {
+			return true
+		}
+	}
+	return false
+}
+
+// Helper function to check if a device index is in the list of devices.
+func containsDevice(target int, devices []int32) bool {
+	for _, device := range devices {
+		if int(device) == target {
+			return true
+		}
+	}
+	return false
 }

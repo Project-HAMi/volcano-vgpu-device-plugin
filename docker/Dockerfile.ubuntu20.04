@@ -16,7 +16,7 @@ FROM ubuntu:20.04 AS builder
 ARG TARGETARCH
 RUN apt-get update
 RUN apt-get -y install ca-certificates g++ wget
-RUN wget -qO- https://storage.googleapis.com/golang/go1.19.3.linux-${TARGETARCH}.tar.gz | tar -C /usr/local -zx
+RUN wget -qO- https://storage.googleapis.com/golang/go1.23.7.linux-${TARGETARCH}.tar.gz | tar -C /usr/local -zx
 ENV GOPATH=/go
 ENV PATH=$GOPATH/bin:/usr/local/go/bin:$PATH
 WORKDIR /go/src/volcano.sh/devices
@@ -26,6 +26,7 @@ RUN go env -w GOARCH=${TARGETARCH}
 RUN go env -w CGO_LDFLAGS_ALLOW='-Wl,--unresolved-symbols=ignore-in-object-files'
 RUN go build -ldflags="-s -w" -o volcano-vgpu-device-plugin ./cmd/vgpu
 RUN go build -ldflags="-s -w" -o volcano-vgpu-monitor ./cmd/vgpu-monitor
+RUN go install github.com/NVIDIA/mig-parted/cmd/nvidia-mig-parted@latest
 
 FROM nvidia/cuda:12.2.0-devel-ubuntu20.04 AS nvidia_builder
 ARG TARGETARCH
@@ -51,6 +52,7 @@ ENV NVIDIA_DRIVER_CAPABILITIES=utility
 
 COPY --from=builder /go/src/volcano.sh/devices/volcano-vgpu-device-plugin /usr/bin/volcano-vgpu-device-plugin
 COPY --from=builder /go/src/volcano.sh/devices/volcano-vgpu-monitor /usr/bin/volcano-vgpu-monitor
+COPY --from=builder /go/bin/nvidia-mig-parted /usr/bin/nvidia-mig-parted
 COPY --from=builder /go/src/volcano.sh/devices/lib/nvidia/ld.so.preload /k8s-vgpu/lib/nvidia/
 COPY --from=nvidia_builder /libvgpu/build/libvgpu.so /k8s-vgpu/lib/nvidia/
 
