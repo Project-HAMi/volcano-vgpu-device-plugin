@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,10 +25,12 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 
-	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	monitoringnvml "github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -382,7 +385,7 @@ func GenerateVirtualDeviceID(id uint, fakeCounter uint) string {
 
 // GetDevices returns virtual devices and all physical devices by index.
 func GetDevices(gpuMemoryFactor uint) ([]*pluginapi.Device, map[uint]string) {
-	n, err := nvml.GetDeviceCount()
+	n, err := monitoringnvml.GetDeviceCount()
 	if err != nil {
 		klog.Fatalf("call nvml.GetDeviceCount with error: %v", err)
 	}
@@ -390,7 +393,7 @@ func GetDevices(gpuMemoryFactor uint) ([]*pluginapi.Device, map[uint]string) {
 	var virtualDevs []*pluginapi.Device
 	deviceByIndex := map[uint]string{}
 	for i := uint(0); i < n; i++ {
-		d, err := nvml.NewDevice(i)
+		d, err := monitoringnvml.NewDevice(i)
 		if err != nil {
 			klog.Fatalf("call nvml.NewDevice with error: %v", err)
 		}
@@ -407,4 +410,129 @@ func GetDevices(gpuMemoryFactor uint) ([]*pluginapi.Device, map[uint]string) {
 	}
 
 	return virtualDevs, deviceByIndex
+}
+
+func GetDeviceNums() int {
+	nvml.Init()
+	count, ret := nvml.DeviceGetCount()
+	if ret != nvml.SUCCESS {
+		klog.Error(`nvml get count error ret=`, ret)
+	}
+	return count
+}
+
+func GetIndexAndTypeFromUUID(uuid string) (string, int) {
+	nvml.Init()
+	originuuid := strings.Split(uuid, "[")[0]
+	ndev, ret := nvml.DeviceGetHandleByUUID(originuuid)
+	if ret != nvml.SUCCESS {
+		klog.Error("nvml get handlebyuuid error ret=", ret)
+		panic(0)
+	}
+	model, ret := ndev.GetName()
+	if ret != nvml.SUCCESS {
+		klog.Error("nvml get name error ret=", ret)
+		panic(0)
+	}
+	index, ret := ndev.GetIndex()
+	if ret != nvml.SUCCESS {
+		klog.Error("nvml get index error ret=", ret)
+		panic(0)
+	}
+	return model, index
+}
+
+func GetMigUUIDFromIndex(uuid string, idx int) string {
+	nvml.Init()
+	originuuid := strings.Split(uuid, "[")[0]
+	ndev, ret := nvml.DeviceGetHandleByUUID(originuuid)
+	if ret != nvml.SUCCESS {
+		klog.Error(`nvml get device uuid error ret=`, ret)
+		panic(0)
+	}
+	migdev, ret := nvml.DeviceGetMigDeviceHandleByIndex(ndev, idx)
+	if ret != nvml.SUCCESS {
+		klog.Error("nvml get mig dev error ret=", ret, ",idx=", idx, "using nvidia-smi -L for query")
+		cmd := exec.Command("nvidia-smi", "-L")
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		if err != nil {
+			klog.Fatalf("nvidia-smi -L failed with %s\n", err)
+		}
+		outStr := stdout.String()
+		uuid := GetMigUUIDFromSmiOutput(outStr, originuuid, idx)
+		return uuid
+	}
+	res, ret := migdev.GetUUID()
+	if ret != nvml.SUCCESS {
+		klog.Error(`nvml get mig uuid error ret=`, ret)
+		panic(0)
+	}
+	return res
+}
+
+func GetMigUUIDFromSmiOutput(output string, uuid string, idx int) string {
+	migmode := false
+	for _, val := range strings.Split(output, "\n") {
+		if !strings.Contains(val, "MIG") && strings.Contains(val, uuid) {
+			migmode = true
+			continue
+		}
+		if !strings.Contains(val, "MIG") && !strings.Contains(val, uuid) {
+			migmode = false
+			continue
+		}
+		if !migmode {
+			continue
+		}
+		klog.Infoln("inspecting", val)
+		num := strings.Split(val, "Device")[1]
+		num = strings.Split(num, ":")[0]
+		num = strings.TrimSpace(num)
+		index, err := strconv.Atoi(num)
+		if err != nil {
+			klog.Fatal("atoi failed num=", num)
+		}
+		if index == idx {
+			outputStr := strings.Split(val, ":")[2]
+			outputStr = strings.TrimSpace(outputStr)
+			outputStr = strings.TrimRight(outputStr, ")")
+			return outputStr
+		}
+	}
+	return ""
+}
+
+// Enhanced ExtractMigTemplatesFromUUID with error handling.
+func ExtractMigTemplatesFromUUID(uuid string) (string, int, error) {
+	parts := strings.Split(uuid, "[")
+	if len(parts) < 2 {
+		return "", -1, fmt.Errorf("invalid UUID format: missing '[' delimiter")
+	}
+
+	tmp := parts[1]
+	parts = strings.Split(tmp, "]")
+	if len(parts) < 2 {
+		return "", -1, fmt.Errorf("invalid UUID format: missing ']' delimiter")
+	}
+
+	tmp = parts[0]
+	parts = strings.Split(tmp, "-")
+	if len(parts) < 2 {
+		return "", -1, fmt.Errorf("invalid UUID format: missing '-' delimiter")
+	}
+
+	templateGroupName := strings.TrimSpace(parts[0])
+	if len(templateGroupName) == 0 {
+		return "", -1, fmt.Errorf("invalid UUID format: missing template group name")
+	}
+
+	pos, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return "", -1, fmt.Errorf("invalid position: %v", err)
+	}
+
+	return templateGroupName, pos, nil
 }
