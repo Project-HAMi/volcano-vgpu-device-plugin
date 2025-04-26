@@ -17,9 +17,11 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"syscall"
 
-	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -73,19 +75,24 @@ func init() {
 }
 
 func start() error {
+	go func() {
+		klog.Info("Starting pprof server, listen on port 6060")
+		klog.Info(http.ListenAndServe(":6060", nil))
+	}()
+
 	klog.Info("Loading NVML")
-	if err := nvml.Init(); err != nil {
-		klog.Infof("Failed to initialize NVML: %v.", err)
+	if nvret := config.Nvml().Init(); nvret != nvml.SUCCESS {
+		klog.Infof("Failed to initialize NVML: %v.", nvret)
 		klog.Infof("If this is a GPU node, did you set the docker default runtime to `nvidia`?")
 		klog.Infof("You can check the prerequisites at: https://github.com/NVIDIA/k8s-device-plugin#prerequisites")
 		klog.Infof("You can learn how to set the runtime at: https://github.com/NVIDIA/k8s-device-plugin#quick-start")
 		klog.Infof("If this is not a GPU node, you should set up a toleration or nodeSelector to only deploy this plugin on GPU nodes")
 		if failOnInitErrorFlag {
-			return fmt.Errorf("failed to initialize NVML: %v", err)
+			return fmt.Errorf("failed to initialize NVML: %v", nvret)
 		}
 		select {}
 	}
-	defer func() { klog.Info("Shutdown of NVML returned:", nvml.Shutdown()) }()
+	defer func() { klog.Info("Shutdown of NVML returned:", config.Nvml().Shutdown()) }()
 
 	klog.Info("Starting FS watcher.")
 	watcher, err := NewFSWatcher(pluginapi.DevicePluginPath)

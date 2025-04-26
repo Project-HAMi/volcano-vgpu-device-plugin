@@ -16,6 +16,13 @@ limitations under the License.
 
 package config
 
+import (
+	"sync"
+
+	"github.com/NVIDIA/go-nvlib/pkg/nvlib/device"
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
+)
+
 type NvidiaConfig struct {
 	ResourceCountName            string                 `yaml:"resourceCountName"`
 	ResourceMemoryName           string                 `yaml:"resourceMemoryName"`
@@ -32,6 +39,29 @@ type NvidiaConfig struct {
 	DisableCoreLimit             bool                   `yaml:"disableCoreLimit"`
 	MigGeometriesList            []AllowedMigGeometries `yaml:"knownMigGeometries"`
 	GPUMemoryFactor              uint                   `yaml:"gpuMemoryFactor"`
+}
+
+var (
+	nvmllib = nvml.New()
+
+	lock         sync.Mutex
+	globalDevice device.Interface
+)
+
+func Nvml() nvml.Interface {
+	return nvmllib
+}
+
+func Device() device.Interface {
+	if globalDevice != nil {
+		return globalDevice
+	}
+
+	lock.Lock()
+	defer lock.Unlock()
+
+	globalDevice = device.New(nvmllib)
+	return globalDevice
 }
 
 var (
