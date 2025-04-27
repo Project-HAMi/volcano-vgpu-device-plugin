@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"k8s.io/klog/v2"
 	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/config"
 	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/util"
@@ -56,21 +56,34 @@ func (r *DeviceRegister) apiDevices() *[]*util.DeviceInfo {
 	devs := r.deviceCache.GetCache()
 	res := make([]*util.DeviceInfo, 0, len(devs))
 	for _, dev := range devs {
-		ndev, err := nvml.NewDeviceByUUID(dev.ID)
-		if err != nil {
+		ndev, ret := config.Nvml().DeviceGetHandleByUUID(dev.ID)
+		if ret != nvml.SUCCESS {
 			fmt.Println("nvml new device by uuid error id=", dev.ID)
-			panic(0)
-		} else {
-			klog.V(3).Infoln("nvml registered device id=", dev.ID, "memory=", *ndev.Memory, "type=", *ndev.Model)
+			panic(ret)
 		}
-		registeredmem := int32(*ndev.Memory) / int32(config.GPUMemoryFactor)
+
+		memory, ret := config.Nvml().DeviceGetMemoryInfo(ndev)
+		if ret != nvml.SUCCESS {
+			fmt.Println("failed to get memory info for device id=", dev.ID)
+			panic(ret)
+		}
+
+		model, ret := config.Nvml().DeviceGetName(ndev)
+		if ret != nvml.SUCCESS {
+			fmt.Println("failed to get model name for device id=", dev.ID)
+			panic(ret)
+		}
+
+		klog.V(3).Infoln("nvml registered device id=", dev.ID, "memory=", memory.Total, "type=", model)
+
+		registeredmem := int32(memory.Total/(1024*1024)) / int32(config.GPUMemoryFactor)
 		klog.V(3).Infoln("GPUMemoryFactor=", config.GPUMemoryFactor, "registeredmem=", registeredmem)
 		res = append(res, &util.DeviceInfo{
 			Id:     dev.ID,
 			Count:  int32(config.DeviceSplitCount),
 			Devmem: registeredmem,
 			Mode:   config.Mode,
-			Type:   fmt.Sprintf("%v-%v", "NVIDIA", *ndev.Model),
+			Type:   fmt.Sprintf("%v-%v", "NVIDIA", model),
 			Health: strings.EqualFold(dev.Health, "healthy"),
 		})
 	}

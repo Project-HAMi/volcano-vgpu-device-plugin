@@ -179,15 +179,12 @@ func NewMIGNvidiaDevicePlugin(resourceName string, resourceManager ResourceManag
 }
 
 func (m *NvidiaDevicePlugin) initialize() {
-	var err error
 	if strings.Compare(m.migStrategy, "mixed") == 0 {
 		m.cachedDevices = m.ResourceManager.Devices()
 	}
 	m.server = grpc.NewServer([]grpc.ServerOption{}...)
 	m.health = make(chan *Device)
 	m.stop = make(chan interface{})
-	check(err)
-
 	m.virtualDevices, _ = util.GetDevices(config.GPUMemoryFactor)
 }
 

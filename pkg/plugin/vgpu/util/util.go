@@ -30,7 +30,6 @@ import (
 	"strings"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
-	monitoringnvml "github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -385,22 +384,31 @@ func GenerateVirtualDeviceID(id uint, fakeCounter uint) string {
 
 // GetDevices returns virtual devices and all physical devices by index.
 func GetDevices(gpuMemoryFactor uint) ([]*pluginapi.Device, map[uint]string) {
-	n, err := monitoringnvml.GetDeviceCount()
-	if err != nil {
-		klog.Fatalf("call nvml.GetDeviceCount with error: %v", err)
+	n, ret := config.Nvml().DeviceGetCount()
+	if ret != nvml.SUCCESS {
+		klog.Fatalf("call nvml.DeviceGetCount with error: %v", ret)
 	}
 
 	var virtualDevs []*pluginapi.Device
 	deviceByIndex := map[uint]string{}
-	for i := uint(0); i < n; i++ {
-		d, err := monitoringnvml.NewDevice(i)
-		if err != nil {
-			klog.Fatalf("call nvml.NewDevice with error: %v", err)
+	for i := uint(0); i < uint(n); i++ {
+		d, ret := config.Nvml().DeviceGetHandleByIndex(int(i))
+		if ret != nvml.SUCCESS {
+			klog.Fatalf("call nvml.DeviceGetHandleByIndex with error: %v", ret)
+		}
+		uuid, ret := d.GetUUID()
+		if ret != nvml.SUCCESS {
+			klog.Fatalf("call GetUUID with error: %v", ret)
 		}
 		id := i
-		deviceByIndex[id] = d.UUID
-		deviceGPUMemory := uint(*d.Memory)
+		deviceByIndex[id] = uuid
+		memory, ret := d.GetMemoryInfo()
+		if ret != nvml.SUCCESS {
+			klog.Fatalf("call GetMemoryInfo with error: %v", ret)
+		}
+		deviceGPUMemory := uint(memory.Total / (1024 * 1024))
 		for j := uint(0); j < deviceGPUMemory/gpuMemoryFactor; j++ {
+			klog.V(4).Infof("adding virtual device: %d", j)
 			fakeID := GenerateVirtualDeviceID(id, j)
 			virtualDevs = append(virtualDevs, &pluginapi.Device{
 				ID:     fakeID,
@@ -413,8 +421,7 @@ func GetDevices(gpuMemoryFactor uint) ([]*pluginapi.Device, map[uint]string) {
 }
 
 func GetDeviceNums() int {
-	nvml.Init()
-	count, ret := nvml.DeviceGetCount()
+	count, ret := config.Nvml().DeviceGetCount()
 	if ret != nvml.SUCCESS {
 		klog.Error(`nvml get count error ret=`, ret)
 	}
@@ -422,9 +429,8 @@ func GetDeviceNums() int {
 }
 
 func GetIndexAndTypeFromUUID(uuid string) (string, int) {
-	nvml.Init()
 	originuuid := strings.Split(uuid, "[")[0]
-	ndev, ret := nvml.DeviceGetHandleByUUID(originuuid)
+	ndev, ret := config.Nvml().DeviceGetHandleByUUID(originuuid)
 	if ret != nvml.SUCCESS {
 		klog.Error("nvml get handlebyuuid error ret=", ret)
 		panic(0)
@@ -443,14 +449,13 @@ func GetIndexAndTypeFromUUID(uuid string) (string, int) {
 }
 
 func GetMigUUIDFromIndex(uuid string, idx int) string {
-	nvml.Init()
 	originuuid := strings.Split(uuid, "[")[0]
-	ndev, ret := nvml.DeviceGetHandleByUUID(originuuid)
+	ndev, ret := config.Nvml().DeviceGetHandleByUUID(originuuid)
 	if ret != nvml.SUCCESS {
 		klog.Error(`nvml get device uuid error ret=`, ret)
 		panic(0)
 	}
-	migdev, ret := nvml.DeviceGetMigDeviceHandleByIndex(ndev, idx)
+	migdev, ret := config.Nvml().DeviceGetMigDeviceHandleByIndex(ndev, idx)
 	if ret != nvml.SUCCESS {
 		klog.Error("nvml get mig dev error ret=", ret, ",idx=", idx, "using nvidia-smi -L for query")
 		cmd := exec.Command("nvidia-smi", "-L")

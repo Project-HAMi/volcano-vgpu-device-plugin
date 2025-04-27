@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"volcano.sh/k8s-device-plugin/pkg/monitor/nvidia"
+	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/config"
 
-	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"k8s.io/klog/v2"
 )
 
@@ -120,7 +120,7 @@ func Observe(lister *nvidia.ContainerLister) {
 }
 
 func watchAndFeedback(lister *nvidia.ContainerLister) {
-	nvml.Init()
+	config.Nvml().Init()
 	for {
 		time.Sleep(time.Second * 5)
 		err := lister.Update()

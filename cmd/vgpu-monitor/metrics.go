@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"volcano.sh/k8s-device-plugin/pkg/monitor/nvidia"
+	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/config"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/prometheus/client_golang/prometheus"
@@ -142,18 +143,18 @@ func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
 		klog.Error("Update container error: %s", err.Error())
 	}
 
-	nvret := nvml.Init()
+	nvret := config.Nvml().Init()
 	if nvret != nvml.SUCCESS {
-		klog.Error("nvml Init err=", nvml.ErrorString(nvret))
+		klog.Errorf("nvml Init err= %v", nvret)
 	}
-	devnum, nvret := nvml.DeviceGetCount()
+	devnum, nvret := config.Nvml().DeviceGetCount()
 	if nvret != nvml.SUCCESS {
-		klog.Error("nvml GetDeviceCount err=", nvml.ErrorString(nvret))
+		klog.Errorf("nvml GetDeviceCount err= %v", nvret)
 	} else {
 		for ii := 0; ii < devnum; ii++ {
-			hdev, nvret := nvml.DeviceGetHandleByIndex(ii)
+			hdev, nvret := config.Nvml().DeviceGetHandleByIndex(ii)
 			if nvret != nvml.SUCCESS {
-				klog.Error(nvml.ErrorString(nvret))
+				klog.Error(nvret)
 			}
 			memoryUsed := 0
 			memory, ret := hdev.GetMemoryInfo()
@@ -165,7 +166,7 @@ func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
 
 			uuid, nvret := hdev.GetUUID()
 			if nvret != nvml.SUCCESS {
-				klog.Error(nvml.ErrorString(nvret))
+				klog.Error(nvret)
 			} else {
 				ch <- prometheus.MustNewConstMetric(
 					hostGPUdesc,
@@ -176,7 +177,7 @@ func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
 			}
 			util, nvret := hdev.GetUtilizationRates()
 			if nvret != nvml.SUCCESS {
-				klog.Error(nvml.ErrorString(nvret))
+				klog.Error(nvret)
 			} else {
 				ch <- prometheus.MustNewConstMetric(
 					hostGPUUtilizationdesc,

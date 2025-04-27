@@ -22,7 +22,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/config"
 )
 
 const (
@@ -49,24 +50,28 @@ func NewMIGCapableDevices() *MIGCapableDevices {
 
 func (devices *MIGCapableDevices) getDevicesMap() (map[bool][]*nvml.Device, error) {
 	if devices.devicesMap == nil {
-		n, err := nvml.GetDeviceCount()
-		if err != nil {
-			return nil, err
+		n, ret := config.Nvml().DeviceGetCount()
+		if ret != nvml.SUCCESS {
+			return nil, fmt.Errorf("error getting device count: %v", ret)
 		}
 
 		migEnabledDevicesMap := make(map[bool][]*nvml.Device)
-		for i := uint(0); i < n; i++ {
-			d, err := nvml.NewDeviceLite(i)
-			if err != nil {
-				return nil, err
+		for i := 0; i < int(n); i++ {
+			d, ret := config.Nvml().DeviceGetHandleByIndex(i)
+			if ret != nvml.SUCCESS {
+				return nil, fmt.Errorf("error getting device handle: %v", ret)
 			}
 
-			isMigEnabled, err := d.IsMigEnabled()
-			if err != nil {
-				return nil, err
+			isMigEnabled, _, ret := config.Nvml().DeviceGetMigMode(d)
+			if ret != nvml.SUCCESS {
+				if ret == nvml.ERROR_NOT_SUPPORTED {
+					isMigEnabled = nvml.DEVICE_MIG_DISABLE
+				} else {
+					return nil, fmt.Errorf("error getting MIG mode: %v", ret)
+				}
 			}
 
-			migEnabledDevicesMap[isMigEnabled] = append(migEnabledDevicesMap[isMigEnabled], d)
+			migEnabledDevicesMap[isMigEnabled == 1] = append(migEnabledDevicesMap[isMigEnabled == 1], &d)
 		}
 
 		devices.devicesMap = migEnabledDevicesMap
@@ -102,12 +107,23 @@ func (devices *MIGCapableDevices) AssertAllMigEnabledDevicesAreValid() error {
 	}
 
 	for _, d := range devicesMap[true] {
-		migs, err := d.GetMigDevices()
-		if err != nil {
-			return err
+		var migs []*nvml.Device
+		maxMigDevices, ret := config.Nvml().DeviceGetMaxMigDeviceCount(*d)
+		if ret != nvml.SUCCESS {
+			return fmt.Errorf("error getting max MIG device count: %v", ret)
+		}
+		for i := 0; i < int(maxMigDevices); i++ {
+			mig, ret := config.Nvml().DeviceGetMigDeviceHandleByIndex(*d, i)
+			if ret == nvml.SUCCESS {
+				migs = append(migs, &mig)
+			}
 		}
 		if len(migs) == 0 {
-			return fmt.Errorf("no MIG devices associated with %v: %v", d.Path, d.UUID)
+			uuid, ret := config.Nvml().DeviceGetUUID(*d)
+			if ret != nvml.SUCCESS {
+				return fmt.Errorf("error getting device UUID: %v", ret)
+			}
+			return fmt.Errorf("no MIG devices associated with device: %v", uuid)
 		}
 	}
 	return nil
@@ -122,11 +138,16 @@ func (devices *MIGCapableDevices) GetAllMigDevices() ([]*nvml.Device, error) {
 
 	var migs []*nvml.Device
 	for _, d := range devicesMap[true] {
-		devs, err := d.GetMigDevices()
-		if err != nil {
-			return nil, err
+		maxMigDevices, ret := config.Nvml().DeviceGetMaxMigDeviceCount(*d)
+		if ret != nvml.SUCCESS {
+			return nil, fmt.Errorf("error getting max MIG device count: %v", ret)
 		}
-		migs = append(migs, devs...)
+		for i := 0; i < int(maxMigDevices); i++ {
+			mig, ret := config.Nvml().DeviceGetMigDeviceHandleByIndex(*d, i)
+			if ret == nvml.SUCCESS {
+				migs = append(migs, &mig)
+			}
+		}
 	}
 	return migs, nil
 }
@@ -198,26 +219,25 @@ func GetMigCapabilityDevicePaths() (map[string]string, error) {
 }
 
 // GetMigDeviceNodePaths returns a list of device node paths associated with a MIG device
-func GetMigDeviceNodePaths(parent *nvml.Device, mig *nvml.Device) ([]string, error) {
+func GetMigDeviceNodePaths(parent nvml.Device, mig *nvml.Device) ([]string, error) {
 	capDevicePaths, err := GetMigCapabilityDevicePaths()
 	if err != nil {
 		return nil, fmt.Errorf("error getting MIG capability device paths: %v", err)
 	}
 
-	var gpu int
-	_, err = fmt.Sscanf(parent.Path, "/dev/nvidia%d", &gpu)
-	if err != nil {
-		return nil, fmt.Errorf("error getting GPU minor: %v", err)
+	gpu, ret := parent.GetMinorNumber()
+	if ret != nvml.SUCCESS {
+		return nil, fmt.Errorf("error getting GPU device minor number: %v", ret)
 	}
 
-	gi, err := mig.GetGPUInstanceId()
-	if err != nil {
-		return nil, fmt.Errorf("error getting MIG GPU instance ID: %v", err)
+	gi, ret := config.Nvml().DeviceGetGpuInstanceId(*mig)
+	if ret != nvml.SUCCESS {
+		return nil, fmt.Errorf("error getting MIG GPU instance ID: %v", ret)
 	}
 
-	ci, err := mig.GetComputeInstanceId()
-	if err != nil {
-		return nil, fmt.Errorf("error getting MIG compute instance ID: %v", err)
+	ci, ret := config.Nvml().DeviceGetComputeInstanceId(*mig)
+	if ret != nvml.SUCCESS {
+		return nil, fmt.Errorf("error getting MIG compute instance ID: %v", ret)
 	}
 
 	giCapPath := fmt.Sprintf(nvidiaCapabilitiesPath+"/gpu%d/mig/gi%d/access", gpu, gi)
@@ -231,7 +251,7 @@ func GetMigDeviceNodePaths(parent *nvml.Device, mig *nvml.Device) ([]string, err
 	}
 
 	devicePaths := []string{
-		parent.Path,
+		fmt.Sprintf("/dev/nvidia%d", gpu),
 		capDevicePaths[giCapPath],
 		capDevicePaths[ciCapPath],
 	}

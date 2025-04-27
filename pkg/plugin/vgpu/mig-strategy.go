@@ -21,8 +21,9 @@ import (
 	"log"
 
 	"github.com/NVIDIA/go-gpuallocator/gpuallocator"
-	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
+	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/config"
 	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/util"
 )
 
@@ -90,31 +91,6 @@ func (s *migStrategySingle) GetPlugins(cache *DeviceCache) []*NvidiaDevicePlugin
 	panic("single mode in MIG currently not supported")
 }
 
-func (s *migStrategySingle) validMigDevice(mig *nvml.Device) bool {
-	attr, err := mig.GetAttributes()
-	check(err)
-
-	return attr.GpuInstanceSliceCount == attr.ComputeInstanceSliceCount
-}
-
-func (s *migStrategySingle) getResourceName(mig *nvml.Device) string {
-	attr, err := mig.GetAttributes()
-	check(err)
-
-	g := attr.GpuInstanceSliceCount
-	c := attr.ComputeInstanceSliceCount
-	gb := ((attr.MemorySizeMB + 1024 - 1) / 1024)
-
-	var r string
-	if g == c {
-		r = fmt.Sprintf("mig-%dg.%dgb", g, gb)
-	} else {
-		r = fmt.Sprintf("mig-%dc.%dg.%dgb", c, g, gb)
-	}
-
-	return r
-}
-
 func (s *migStrategySingle) MatchesResource(mig *nvml.Device, resource string) bool {
 	return true
 }
@@ -133,8 +109,14 @@ func (s *migStrategyMixed) GetPlugins(cache *DeviceCache) []*NvidiaDevicePlugin 
 		panic(fmt.Errorf("unable to retrieve list of MIG devices: %v", err))
 	}
 	for _, mig := range migs {
-		r := s.getResourceName(mig)
-		if !s.validMigDevice(mig) {
+		// Convert old NVML device to new NVML device
+		uuid, ret := (*mig).GetUUID()
+		check(ret)
+		newDevice, ret := config.Nvml().DeviceGetHandleByUUID(uuid)
+		check(ret)
+
+		r := s.getResourceName(&newDevice)
+		if !s.validMigDevice(&newDevice) {
 			log.Printf("Skipping unsupported MIG device: %v", r)
 			continue
 		}
@@ -143,7 +125,6 @@ func (s *migStrategyMixed) GetPlugins(cache *DeviceCache) []*NvidiaDevicePlugin 
 
 	plugins := []*NvidiaDevicePlugin{
 		NewNvidiaDevicePlugin(
-			//"nvidia.com/gpu",
 			util.ResourceName,
 			cache,
 			gpuallocator.NewBestEffortPolicy(),
@@ -164,25 +145,28 @@ func (s *migStrategyMixed) GetPlugins(cache *DeviceCache) []*NvidiaDevicePlugin 
 }
 
 func (s *migStrategyMixed) validMigDevice(mig *nvml.Device) bool {
-	attr, err := mig.GetAttributes()
-	check(err)
-
-	return attr.GpuInstanceSliceCount == attr.ComputeInstanceSliceCount
+	gi, ret := config.Nvml().DeviceGetGpuInstanceId(*mig)
+	check(ret)
+	ci, ret := config.Nvml().DeviceGetComputeInstanceId(*mig)
+	check(ret)
+	return gi == ci
 }
 
 func (s *migStrategyMixed) getResourceName(mig *nvml.Device) string {
-	attr, err := mig.GetAttributes()
-	check(err)
+	gi, ret := config.Nvml().DeviceGetGpuInstanceId(*mig)
+	check(ret)
+	ci, ret := config.Nvml().DeviceGetComputeInstanceId(*mig)
+	check(ret)
 
-	g := attr.GpuInstanceSliceCount
-	c := attr.ComputeInstanceSliceCount
-	gb := ((attr.MemorySizeMB + 1024 - 1) / 1024)
+	memory, ret := config.Nvml().DeviceGetMemoryInfo(*mig)
+	check(ret)
+	gb := ((memory.Total/(1024*1024) + 1024 - 1) / 1024)
 
 	var r string
-	if g == c {
-		r = fmt.Sprintf("mig-%dg.%dgb", g, gb)
+	if gi == ci {
+		r = fmt.Sprintf("mig-%dg.%dgb", gi, gb)
 	} else {
-		r = fmt.Sprintf("mig-%dc.%dg.%dgb", c, g, gb)
+		r = fmt.Sprintf("mig-%dc.%dg.%dgb", ci, gi, gb)
 	}
 
 	return r

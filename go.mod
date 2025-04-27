@@ -3,14 +3,14 @@ module volcano.sh/k8s-device-plugin
 go 1.23
 
 require (
-	github.com/NVIDIA/go-gpuallocator v0.2.3
-	github.com/NVIDIA/go-nvml v0.12.4-0
-	github.com/NVIDIA/gpu-monitoring-tools v0.0.0-20201109160820-d08ea3cdcce4
+	github.com/NVIDIA/go-gpuallocator v0.5.0
+	github.com/NVIDIA/go-nvlib v0.7.1
+	github.com/NVIDIA/go-nvml v0.12.4-1
 	github.com/fsnotify/fsnotify v1.4.9
 	github.com/prometheus/client_golang v1.0.0
 	github.com/spf13/cobra v0.0.5
 	github.com/spf13/viper v1.3.2
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 	github.com/urfave/cli/v2 v2.4.0
 	golang.org/x/net v0.0.0-20200421231249-e086a090c8fd
 	google.golang.org/grpc v1.32.0
@@ -18,6 +18,7 @@ require (
 	k8s.io/api v0.18.2
 	k8s.io/apimachinery v0.18.2
 	k8s.io/client-go v0.18.2
+	k8s.io/klog v1.0.0
 	k8s.io/klog/v2 v2.80.1
 	k8s.io/kubelet v0.0.0
 	sigs.k8s.io/yaml v1.2.0
@@ -64,7 +65,6 @@ require (
 	google.golang.org/protobuf v1.34.2 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/klog v1.0.0 // indirect
 	k8s.io/utils v0.0.0-20200324210504-a9aa75ae1b89 // indirect
 	sigs.k8s.io/structured-merge-diff/v3 v3.0.0 // indirect
 )
