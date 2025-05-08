@@ -39,7 +39,7 @@ type MigStrategyResourceSet map[string]struct{}
 
 // MigStrategy provides an interface for building the set of plugins required to implement a given MIG strategy
 type MigStrategy interface {
-	GetPlugins(cache *DeviceCache) []*NvidiaDevicePlugin
+	GetPlugins(cfg *config.NvidiaConfig, cache *DeviceCache) []*NvidiaDevicePlugin
 	MatchesResource(mig *nvml.Device, resource string) bool
 }
 
@@ -61,24 +61,27 @@ type migStrategySingle struct{}
 type migStrategyMixed struct{}
 
 // migStrategyNone
-func (s *migStrategyNone) GetPlugins(cache *DeviceCache) []*NvidiaDevicePlugin {
+func (s *migStrategyNone) GetPlugins(cfg *config.NvidiaConfig, cache *DeviceCache) []*NvidiaDevicePlugin {
 	return []*NvidiaDevicePlugin{
 		NewNvidiaDevicePlugin(
 			//"nvidia.com/gpu",
 			util.ResourceName,
 			cache,
 			gpuallocator.NewBestEffortPolicy(),
-			pluginapi.DevicePluginPath+"nvidia-gpu.sock"),
+			pluginapi.DevicePluginPath+"nvidia-gpu.sock",
+			cfg),
 		NewNvidiaDevicePlugin(
 			util.ResourceMem,
 			cache,
 			gpuallocator.NewBestEffortPolicy(),
-			pluginapi.DevicePluginPath+"nvidia-gpu-memory.sock"),
+			pluginapi.DevicePluginPath+"nvidia-gpu-memory.sock",
+			cfg),
 		NewNvidiaDevicePlugin(
 			util.ResourceCores,
 			cache,
 			gpuallocator.NewBestEffortPolicy(),
-			pluginapi.DevicePluginPath+"nvidia-gpu-cores.sock"),
+			pluginapi.DevicePluginPath+"nvidia-gpu-cores.sock",
+			cfg),
 	}
 }
 
@@ -87,7 +90,7 @@ func (s *migStrategyNone) MatchesResource(mig *nvml.Device, resource string) boo
 }
 
 // migStrategySingle
-func (s *migStrategySingle) GetPlugins(cache *DeviceCache) []*NvidiaDevicePlugin {
+func (s *migStrategySingle) GetPlugins(cfg *config.NvidiaConfig, cache *DeviceCache) []*NvidiaDevicePlugin {
 	panic("single mode in MIG currently not supported")
 }
 
@@ -96,7 +99,7 @@ func (s *migStrategySingle) MatchesResource(mig *nvml.Device, resource string) b
 }
 
 // migStrategyMixed
-func (s *migStrategyMixed) GetPlugins(cache *DeviceCache) []*NvidiaDevicePlugin {
+func (s *migStrategyMixed) GetPlugins(cfg *config.NvidiaConfig, cache *DeviceCache) []*NvidiaDevicePlugin {
 	devices := NewMIGCapableDevices()
 
 	if err := devices.AssertAllMigEnabledDevicesAreValid(); err != nil {
@@ -128,7 +131,8 @@ func (s *migStrategyMixed) GetPlugins(cache *DeviceCache) []*NvidiaDevicePlugin 
 			util.ResourceName,
 			cache,
 			gpuallocator.NewBestEffortPolicy(),
-			pluginapi.DevicePluginPath+"nvidia-gpu.sock"),
+			pluginapi.DevicePluginPath+"nvidia-gpu.sock",
+			cfg),
 	}
 
 	for resource := range resources {
