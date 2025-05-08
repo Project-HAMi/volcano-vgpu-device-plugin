@@ -20,10 +20,11 @@ import (
 	"sync"
 
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
+	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/config"
 )
 
 type DeviceCache struct {
-	GpuDeviceManager
+	*GpuDeviceManager
 
 	cache     []*Device
 	stopCh    chan interface{}
@@ -33,8 +34,12 @@ type DeviceCache struct {
 }
 
 func NewDeviceCache() *DeviceCache {
+	skipMigEnabledGPUs := true
+	if config.Mode == "mig" {
+		skipMigEnabledGPUs = false
+	}
 	return &DeviceCache{
-		GpuDeviceManager: GpuDeviceManager{true},
+		GpuDeviceManager: NewGpuDeviceManager(skipMigEnabledGPUs),
 		stopCh:           make(chan interface{}),
 		unhealthy:        make(chan *Device),
 		notifyCh:         make(map[string]chan *Device),

@@ -104,6 +104,8 @@ func start() error {
 	klog.Info("Starting OS watcher.")
 	sigs := NewOSWatcher(syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
+	nvidiaCfg := util.LoadNvidiaConfig()
+
 	cache := nvidiadevice.NewDeviceCache()
 	cache.Start()
 	defer cache.Stop()
@@ -124,7 +126,7 @@ restart:
 	if err != nil {
 		return fmt.Errorf("error creating MIG strategy: %v", err)
 	}
-	plugins = migStrategy.GetPlugins(cache)
+	plugins = migStrategy.GetPlugins(nvidiaCfg, cache)
 
 	started := 0
 	pluginStartError := make(chan struct{})

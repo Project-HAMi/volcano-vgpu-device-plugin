@@ -48,6 +48,11 @@ var (
 	globalDevice device.Interface
 )
 
+var (
+	// DevicePluginFilterDevice need device-plugin filter this device, don't register this device.
+	DevicePluginFilterDevice *FilterDevice
+)
+
 func Nvml() nvml.Interface {
 	return nvmllib
 }

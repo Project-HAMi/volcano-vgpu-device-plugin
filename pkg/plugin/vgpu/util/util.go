@@ -541,3 +541,58 @@ func ExtractMigTemplatesFromUUID(uuid string) (string, int, error) {
 
 	return templateGroupName, pos, nil
 }
+
+func LoadNvidiaConfig() *config.NvidiaConfig {
+	configs, err := LoadConfigFromCM("volcano-vgpu-device-config")
+	if err != nil {
+		klog.InfoS("configMap not found", err.Error())
+	}
+	nvidiaConfig := config.NvidiaConfig{}
+	if configs != nil {
+		nvidiaConfig = configs.NvidiaConfig
+	}
+	nvidiaConfig.DeviceSplitCount = config.DeviceSplitCount
+	nvidiaConfig.DeviceCoreScaling = config.DeviceCoresScaling
+	nvidiaConfig.GPUMemoryFactor = config.GPUMemoryFactor
+	if err := readFromConfigFile(&nvidiaConfig); err != nil {
+		klog.InfoS("readFrom device cm error", err.Error())
+	}
+	klog.Infoln("Loaded config=", nvidiaConfig)
+	return &nvidiaConfig
+}
+
+func readFromConfigFile(sConfig *config.NvidiaConfig) error {
+	config.Mode = "hami-core"
+	jsonbyte, err := os.ReadFile("/config/config.json")
+	if err != nil {
+		return err
+	}
+	var deviceConfigs config.DevicePluginConfigs
+	err = json.Unmarshal(jsonbyte, &deviceConfigs)
+	if err != nil {
+		return err
+	}
+	klog.Infof("Device Plugin Configs: %v", fmt.Sprintf("%v", deviceConfigs))
+	for _, val := range deviceConfigs.Nodeconfig {
+		if os.Getenv("NODE_NAME") == val.Name {
+			klog.Infof("Reading config from file %s", val.Name)
+			if val.Devicememoryscaling > 0 {
+				sConfig.DeviceMemoryScaling = val.Devicememoryscaling
+			}
+			if val.Devicecorescaling > 0 {
+				sConfig.DeviceCoreScaling = val.Devicecorescaling
+			}
+			if val.Devicesplitcount > 0 {
+				sConfig.DeviceSplitCount = val.Devicesplitcount
+			}
+			if val.FilterDevice != nil && (len(val.FilterDevice.UUID) > 0 || len(val.FilterDevice.Index) > 0) {
+				config.DevicePluginFilterDevice = val.FilterDevice
+			}
+			if len(val.OperatingMode) > 0 {
+				config.Mode = val.OperatingMode
+			}
+			klog.Infof("FilterDevice: %v", val.FilterDevice)
+		}
+	}
+	return nil
+}
