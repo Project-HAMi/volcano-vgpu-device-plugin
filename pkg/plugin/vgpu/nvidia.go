@@ -109,6 +109,19 @@ func (g *GpuDeviceManager) Devices() []*Device {
 			continue
 		}
 
+		// Auto ebale MIG mode when the plugin is running in MIG mode
+		if config.Mode == "mig" && migMode != nvml.DEVICE_MIG_ENABLE {
+			if ret == nvml.ERROR_NOT_SUPPORTED {
+				klog.V(4).Infof("Node is configed as MIG mode, but GPU %v does not support MIG mode", i)
+				continue
+			}
+			ret, stat := d.SetMigMode(nvml.DEVICE_MIG_ENABLE)
+			if ret != nvml.SUCCESS || stat != nvml.SUCCESS {
+				klog.V(4).Infof("Node is configed as MIG mode, but failed to enable MIG mode for GPU %v : ret=%v, stat=%v", i, ret, stat)
+				continue
+			}
+		}
+
 		dev, err := buildDevice(fmt.Sprintf("%v", i), d)
 		if err != nil {
 			log.Panicln("Fatal:", err)

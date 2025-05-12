@@ -246,7 +246,8 @@ spec:
             fieldRef:
               fieldPath: spec.nodeName
         securityContext:
-          allowPrivilegeEscalation: false
+          privileged: true
+          allowPrivilegeEscalation: true
           capabilities:
             drop: ["ALL"]
             add: ["SYS_ADMIN"]
