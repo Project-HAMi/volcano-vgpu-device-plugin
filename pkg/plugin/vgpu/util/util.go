@@ -65,7 +65,12 @@ func GetNode(nodename string) (*v1.Node, error) {
 }
 
 func GetPendingPod(node string) (*v1.Pod, error) {
-	podList, err := lock.GetClient().CoreV1().Pods("").List(context.Background(), metav1.ListOptions{})
+	// filter pods for this node.
+	selector := fmt.Sprintf("spec.nodeName=%s", node)
+	podListOptions := metav1.ListOptions{
+		FieldSelector: selector,
+	}
+	podList, err := lock.GetClient().CoreV1().Pods("").List(context.Background(), podListOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -82,23 +87,45 @@ func getOldestPod(pods []v1.Pod, nodename string) *v1.Pod {
 	if len(pods) == 0 {
 		return nil
 	}
-	oldest := pods[0]
-	for _, pod := range pods {
-		if pod.Annotations[AssignedNodeAnnotations] == nodename {
-			klog.V(4).Infof("pod %s, predicate time: %s", pod.Name, pod.Annotations[AssignedTimeAnnotations])
-			if getPredicateTimeFromPodAnnotation(&oldest) > getPredicateTimeFromPodAnnotation(&pod) {
-				oldest = pod
+	var oldest *v1.Pod = nil
+	for i, pod := range pods {
+		if pod.Status.Phase != v1.PodPending {
+			continue
+		}
+		if _, ok := pod.Annotations[BindTimeAnnotations]; !ok {
+			continue
+		}
+		if phase, ok := pod.Annotations[DeviceBindPhase]; !ok {
+			continue
+		} else {
+			if strings.Compare(phase, DeviceBindAllocating) != 0 {
+				continue
 			}
 		}
+		if assignedNodeAnnotations, ok := pod.Annotations[AssignedNodeAnnotations]; !ok {
+			continue
+		} else {
+			if strings.Compare(assignedNodeAnnotations, nodename) != 0 {
+				continue
+			}
+		}
+		klog.V(4).Infof("pod %s, predicate time: %s", pod.Name, pod.Annotations[AssignedTimeAnnotations])
+		if oldest == nil || getPredicateTimeFromPodAnnotation(oldest) > getPredicateTimeFromPodAnnotation(&pod) {
+			oldest = &pods[i]
+		}
+	}
+	if oldest == nil {
+		klog.Warningf("no pod has predicate time")
+		return nil
 	}
 	klog.V(4).Infof("oldest pod %#v, predicate time: %#v", oldest.Name,
 		oldest.Annotations[AssignedTimeAnnotations])
 	annotation := map[string]string{AssignedTimeAnnotations: strconv.FormatUint(math.MaxUint64, 10)}
-	if err := PatchPodAnnotations(&oldest, annotation); err != nil {
+	if err := PatchPodAnnotations(oldest, annotation); err != nil {
 		klog.Errorf("update pod %s failed, err: %v", oldest.Name, err)
 		return nil
 	}
-	return &oldest
+	return oldest
 }
 
 func getPredicateTimeFromPodAnnotation(pod *v1.Pod) uint64 {
