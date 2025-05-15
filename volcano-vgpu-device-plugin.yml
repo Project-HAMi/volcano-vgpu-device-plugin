@@ -214,8 +214,15 @@ spec:
               fieldPath: spec.nodeName
         - name: HOOK_PATH
           value: "/usr/local/vgpu"
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: "all"
+        - name: NVIDIA_MIG_MONITOR_DEVICES
+          value: "all"
+        - name: NVIDIA_DRIVER_CAPABILITIES
+          value: "utility"
         securityContext:
-          allowPrivilegeEscalation: false
+          allowPrivilegeEscalation: true
+          previleged: true
           capabilities:
             drop: ["ALL"]
             add: ["SYS_ADMIN"]
