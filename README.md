@@ -1,6 +1,7 @@
 # Volcano vgpu device plugin for Kubernetes
 
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FProject-HAMi%2Fvolcano-vgpu-device-plugin.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FProject-HAMi%2Fvolcano-vgpu-device-plugin?ref=badge_shield)
+[![docker pulls](https://img.shields.io/docker/pulls/projecthami/volcano-vgpu-device-plugin.svg)](https://hub.docker.com/r/projecthami/volcano-vgpu-device-plugin)
 
 **Note**:
 
@@ -28,6 +29,7 @@ The Volcano device plugin for Kubernetes is a Daemonset that allows you to autom
 - Run GPU enabled containers in your Kubernetes cluster.
 - Provide device-sharing mechanism for GPU tasks as the figure below.
 - Enforce hard resource limit in container.
+- Support dynamic-mig, for more details, see [config](doc/config.md)  
 
 <img src="./doc/example.png" width = "600" /> 
 
@@ -108,6 +110,9 @@ data:
       - name: nodeorder
       - name: binpack
 ```
+
+Customize your installation by adjusting the [configs](doc/config.md)
+
 
 ### Enabling GPU Support in Kubernetes
 
