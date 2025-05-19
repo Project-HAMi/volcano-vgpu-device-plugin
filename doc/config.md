@@ -27,7 +27,7 @@ After making changes, restart the volcano-vgpu-device-plugin and volcano-schedul
 * `nvidia.defaultCores`: 
   Integer type, by default: equals 0. Percentage of GPU cores reserved for the current task. If assigned to 0, it may fit in any GPU with enough device memory. If assigned to 100, it will use an entire GPU card exclusively.
 * `nvidia.defaultGPUNum`: 
-  Integer type, by default: equals 1, if configuration value is 0, then the configuration value will not take effect and will be filtered. when a user does not set nvidia.com/gpu this key in pod resource, webhook should check nvidia.com/gpumem、resource-mem-percentage、nvidia.com/gpucores this three key, anyone a key having value, webhook should add nvidia.com/gpu key and this default value to resources limits map.
+  Integer type, by default: equals 1, if configuration value is 0, then the configuration value will not take effect and will be filtered. When a user does not set nvidia.com/gpu this key in pod resource, webhook should check nvidia.com/gpumem、resource-mem-percentage、nvidia.com/gpucores these three keys, anyone a key having value, webhook should add nvidia.com/gpu key and this default value to resources limits map.
 * `nvidia.resourceCountName`: 
   String type, vgpu number resource name, default: "volcano.sh/vgpu-number"
 * `nvidia.resourceMemoryName`: 
