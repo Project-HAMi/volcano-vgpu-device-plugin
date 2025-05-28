@@ -44,7 +44,7 @@ All the configurations listed below are managed within the `volcano-vgpu-node-co
 You can update these configurations using the following methods:
 
 ```bash
-kubectl edit configmap volcano-vgpu-device-config -n <namespace>
+kubectl edit configmap volcano-vgpu-node-config -n <namespace>
 ```
 
 After making changes, restart the volcano-vgpu-device-plugin and volcano-scheduler to apply the updated configurations.
