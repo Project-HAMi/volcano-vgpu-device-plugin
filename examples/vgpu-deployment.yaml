@@ -15,7 +15,7 @@ spec:
       schedulerName: volcano
       containers:
       - name: resnet101-container
-        image: ubuntu:18.04
+        image: ubuntu:24.04
         command: ["sleep","infinity"]
         resources:
          limits:

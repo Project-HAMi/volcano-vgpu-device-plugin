@@ -6,12 +6,11 @@ spec:
   restartPolicy: OnFailure
   schedulerName: volcano
   containers:
-  - image: nvidia/cuda:11.2.2-base-ubi8
+  - image: ubuntu:24.04
     name: pod1-ctr
     command: ["sleep"]
     args: ["100000"]
     resources:
       limits:
         volcano.sh/vgpu-number: 1 #request 1 GPU
-        volcano.sh/vgpu-cores: 50 #each GPU request 50% of compute core resources
         volcano.sh/vgpu-memory: 10240 #each GPU request 10G device memory
