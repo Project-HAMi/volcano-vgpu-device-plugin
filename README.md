@@ -105,6 +105,7 @@ data:
       - name: deviceshare
         arguments:
           deviceshare.VGPUEnable: true # enable vgpu
+          deviceshare.SchedulePolicy: binpack  # scheduling policy. binpack / spread
       - name: predicates
       - name: proportion
       - name: nodeorder
