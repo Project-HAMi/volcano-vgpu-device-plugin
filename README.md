@@ -105,6 +105,7 @@ data:
       - name: deviceshare
         arguments:
           deviceshare.VGPUEnable: true # enable vgpu
+          deviceshare.SchedulePolicy: binpack  # scheduling policy. binpack / spread
       - name: predicates
       - name: proportion
       - name: nodeorder
@@ -120,6 +121,12 @@ A brief introduction about these two modes:
 HAMi-core is a user-layer resource isolator provided by HAMi community, works on all types of GPU.
 
 Dynamic-mig is a hardware resource isolator, works on Ampere arch or later GPU. 
+
+The table below shows the summary:
+| Mode        | Isolation        | MIG GPU Required | Annotation | Core/Memory Control | Recommended For            |
+| ----------- | ---------------- | ---------------- | ---------- | ------------------- | -------------------------- |
+| HAMI-core   | Software (VCUDA) | No               | No         | Yes                 | General workloads          |
+| Dynamic MIG | Hardware         | Yes              | Yes        | MIG-controlled      | Performance-sensitive jobs |
 
 You can set the sharing mode and customize your installation by adjusting the [configs](doc/config.md)
 
