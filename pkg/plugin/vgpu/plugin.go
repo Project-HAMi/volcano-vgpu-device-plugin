@@ -141,7 +141,12 @@ func (m *NvidiaDevicePlugin) cleanup() {
 func (m *NvidiaDevicePlugin) Start() error {
 	m.initialize()
 
-	err := m.Serve()
+	deviceNumbers, err := util.GetDeviceNums()
+	if err != nil {
+		return err
+	}
+
+	err = m.Serve()
 	if err != nil {
 		log.Printf("Could not start device plugin for '%s': %s", m.resourceName, err)
 		m.cleanup()
@@ -169,14 +174,11 @@ func (m *NvidiaDevicePlugin) Start() error {
 		outStr := stdout.Bytes()
 		yaml.Unmarshal(outStr, &m.migCurrent)
 		os.WriteFile("/tmp/migconfig.yaml", outStr, os.ModePerm)
-		if len(m.migCurrent.MigConfigs["current"]) == 1 && len(m.migCurrent.MigConfigs["current"][0].Devices) == 0 {
-			idx := 0
-			m.migCurrent.MigConfigs["current"][0].Devices = make([]int32, 0)
-			for idx < util.GetDeviceNums() {
-				m.migCurrent.MigConfigs["current"][0].Devices = append(m.migCurrent.MigConfigs["current"][0].Devices, int32(idx))
-				idx++
-			}
+		hamiInitMigConfig, err := m.processMigConfigs(m.migCurrent.MigConfigs, deviceNumbers)
+		if err != nil {
+			klog.Infof("no device in node:%v", err)
 		}
+		m.migCurrent.MigConfigs["current"] = hamiInitMigConfig
 		klog.Infoln("Mig export", m.migCurrent)
 	}
 
@@ -188,6 +190,66 @@ func (m *NvidiaDevicePlugin) Start() error {
 		log.Panicln("migstrategy not recognized", m.migStrategy)
 	}
 	return nil
+}
+
+func (m *NvidiaDevicePlugin) processMigConfigs(migConfigs map[string]config.MigConfigSpecSlice, deviceCount int) (config.MigConfigSpecSlice, error) {
+	if migConfigs == nil {
+		return nil, fmt.Errorf("migConfigs cannot be nil")
+	}
+	if deviceCount <= 0 {
+		return nil, fmt.Errorf("deviceCount must be positive")
+	}
+
+	transformConfigs := func() (config.MigConfigSpecSlice, error) {
+		var result config.MigConfigSpecSlice
+
+		if len(migConfigs["current"]) == 1 && len(migConfigs["current"][0].Devices) == 0 {
+			for i := 0; i < deviceCount; i++ {
+				config := deepCopyMigConfig(migConfigs["current"][0])
+				config.Devices = []int32{int32(i)}
+				result = append(result, config)
+			}
+			return result, nil
+		}
+
+		deviceToConfig := make(map[int32]*config.MigConfigSpec)
+		for i := range migConfigs["current"] {
+			for _, device := range migConfigs["current"][i].Devices {
+				deviceToConfig[device] = &migConfigs["current"][i]
+			}
+		}
+
+		for i := 0; i < deviceCount; i++ {
+			deviceIndex := int32(i)
+			config, exists := deviceToConfig[deviceIndex]
+			if !exists {
+				return nil, fmt.Errorf("device %d does not match any MIG configuration", i)
+			}
+			newConfig := deepCopyMigConfig(*config)
+			newConfig.Devices = []int32{deviceIndex}
+			result = append(result, newConfig)
+
+		}
+		return result, nil
+	}
+
+	return transformConfigs()
+}
+
+// Helper function to deepcopy new mig spec
+func deepCopyMigConfig(src config.MigConfigSpec) config.MigConfigSpec {
+	dst := src
+	if src.Devices != nil {
+		dst.Devices = make([]int32, len(src.Devices))
+		copy(dst.Devices, src.Devices)
+	}
+	if src.MigDevices != nil {
+		dst.MigDevices = make(map[string]int32)
+		for k, v := range src.MigDevices {
+			dst.MigDevices[k] = v
+		}
+	}
+	return dst
 }
 
 // Stop stops the gRPC server.
