@@ -200,7 +200,7 @@ spec:
       priorityClassName: "system-node-critical"
       serviceAccount: volcano-device-plugin
       containers:
-      - image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.9.4
+      - image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.10.0
         args: ["--device-split-count=10"]
         lifecycle:
           postStart:
@@ -222,7 +222,7 @@ spec:
           value: "utility"
         securityContext:
           allowPrivilegeEscalation: true
-          previleged: true
+          privileged: true
           capabilities:
             drop: ["ALL"]
             add: ["SYS_ADMIN"]
@@ -235,7 +235,7 @@ spec:
           mountPath: /usr/local/vgpu
         - name: hosttmp
           mountPath: /tmp
-      - image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.9.4
+      - image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.10.0
         name: monitor
         command:
         - /bin/bash
