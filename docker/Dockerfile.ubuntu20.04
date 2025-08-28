@@ -16,7 +16,7 @@ FROM ubuntu:20.04 AS builder
 ARG TARGETARCH
 RUN apt-get update
 RUN apt-get -y install ca-certificates g++ wget
-RUN wget -qO- https://storage.googleapis.com/golang/go1.23.7.linux-${TARGETARCH}.tar.gz | tar -C /usr/local -zx
+RUN wget -qO- https://storage.googleapis.com/golang/go1.24.6.linux-${TARGETARCH}.tar.gz | tar -C /usr/local -zx
 ENV GOPATH=/go
 ENV PATH=$GOPATH/bin:/usr/local/go/bin:$PATH
 WORKDIR /go/src/volcano.sh/devices

@@ -144,10 +144,14 @@ func DecodeNodeDevices(str string) []*DeviceInfo {
 	return retval
 }
 
-func EncodeNodeDevices(dlist []*DeviceInfo) string {
+func EncodeNodeDevices(dlist []*DeviceInfo, migStrategy string, coreScaling float64) string {
 	tmp := ""
+	core := "100"
+	if strings.Compare(migStrategy, "none") == 0 {
+		core = strconv.FormatInt(int64(coreScaling*100), 10)
+	}
 	for _, val := range dlist {
-		tmp += val.Id + "," + strconv.FormatInt(int64(val.Count), 10) + "," + strconv.Itoa(int(val.Devmem)) + "," + val.Type + "," + strconv.FormatBool(val.Health) + "," + val.Mode + ":"
+		tmp += val.Id + "," + strconv.FormatInt(int64(val.Count), 10) + "," + strconv.Itoa(int(val.Devmem)) + "," + core + "," + val.Type + "," + strconv.FormatBool(val.Health) + "," + val.Mode + ":"
 	}
 	klog.V(3).Infoln("Encoded node Devices", tmp)
 	return tmp
@@ -171,19 +175,22 @@ func EncodePodDevices(pd PodDevices) string {
 	return strings.Join(ss, ";")
 }
 
-func DecodeContainerDevices(str string) ContainerDevices {
+func DecodeContainerDevices(str string) (ContainerDevices, error) {
 	if len(str) == 0 {
-		return ContainerDevices{}
+		return ContainerDevices{}, nil
 	}
 	cd := strings.Split(str, ":")
 	contdev := ContainerDevices{}
 	tmpdev := ContainerDevice{}
 	if len(str) == 0 {
-		return contdev
+		return contdev, nil
 	}
 	for _, val := range cd {
 		if strings.Contains(val, ",") {
 			tmpstr := strings.Split(val, ",")
+			if len(tmpstr) < 4 {
+				return contdev, fmt.Errorf("invalid container device format: %s", val)
+			}
 			tmpdev.UUID = tmpstr[0]
 			tmpdev.Type = tmpstr[1]
 			devmem, _ := strconv.ParseInt(tmpstr[2], 10, 32)
@@ -193,23 +200,30 @@ func DecodeContainerDevices(str string) ContainerDevices {
 			contdev = append(contdev, tmpdev)
 		}
 	}
-	return contdev
+	return contdev, nil
 }
 
-func DecodePodDevices(str string) PodDevices {
+func DecodePodDevices(str string) (PodDevices, error) {
 	if len(str) == 0 {
-		return PodDevices{}
+		return PodDevices{}, nil
 	}
 	var pd PodDevices
 	for _, s := range strings.Split(str, ";") {
-		cd := DecodeContainerDevices(s)
+		cd, err := DecodeContainerDevices(s)
+		if err != nil {
+			return nil, err
+		}
 		pd = append(pd, cd)
 	}
-	return pd
+	return pd, nil
 }
 
 func GetNextDeviceRequest(dtype string, p v1.Pod) (v1.Container, ContainerDevices, error) {
-	pdevices := DecodePodDevices(p.Annotations[AssignedIDsToAllocateAnnotations])
+	pdevices, err := DecodePodDevices(p.Annotations[AssignedIDsToAllocateAnnotations])
+	if err != nil {
+		klog.Errorf("failed to decode pod devices: %v", err)
+		return v1.Container{}, nil, err
+	}
 	klog.Infoln("pdevices=", pdevices)
 	res := ContainerDevices{}
 	for idx, val := range pdevices {
@@ -228,7 +242,11 @@ func GetNextDeviceRequest(dtype string, p v1.Pod) (v1.Container, ContainerDevice
 }
 
 func EraseNextDeviceTypeFromAnnotation(dtype string, p v1.Pod) error {
-	pdevices := DecodePodDevices(p.Annotations[AssignedIDsToAllocateAnnotations])
+	pdevices, err := DecodePodDevices(p.Annotations[AssignedIDsToAllocateAnnotations])
+	if err != nil {
+		klog.Errorf("failed to decode pod devices: %v", err)
+		return err
+	}
 	res := PodDevices{}
 	found := false
 	for _, val := range pdevices {
@@ -383,7 +401,7 @@ func GenerateVirtualDeviceID(id uint, fakeCounter uint) string {
 }
 
 // GetDevices returns virtual devices and all physical devices by index.
-func GetDevices(gpuMemoryFactor uint) ([]*pluginapi.Device, map[uint]string) {
+func GetDevices(gpuMemoryFactor uint, memoryScaling float64, migStrategy string) ([]*pluginapi.Device, map[uint]string) {
 	n, ret := config.Nvml().DeviceGetCount()
 	if ret != nvml.SUCCESS {
 		klog.Fatalf("call nvml.DeviceGetCount with error: %v", ret)
@@ -407,6 +425,9 @@ func GetDevices(gpuMemoryFactor uint) ([]*pluginapi.Device, map[uint]string) {
 			klog.Fatalf("call GetMemoryInfo with error: %v", ret)
 		}
 		deviceGPUMemory := uint(memory.Total / (1024 * 1024))
+		if strings.Compare(migStrategy, "none") == 0 {
+			deviceGPUMemory = uint(float64(deviceGPUMemory) * memoryScaling)
+		}
 		for j := uint(0); j < deviceGPUMemory/gpuMemoryFactor; j++ {
 			klog.V(4).Infof("adding virtual device: %d", j)
 			fakeID := GenerateVirtualDeviceID(id, j)
@@ -543,7 +564,7 @@ func ExtractMigTemplatesFromUUID(uuid string) (string, int, error) {
 	return templateGroupName, pos, nil
 }
 
-func LoadNvidiaConfig() *config.NvidiaConfig {
+func LoadNvidiaConfig(migStrategyFlag string) *config.NvidiaConfig {
 	configs, err := LoadConfigFromCM("volcano-vgpu-device-config")
 	if err != nil {
 		klog.InfoS("configMap not found", err.Error())
@@ -555,6 +576,8 @@ func LoadNvidiaConfig() *config.NvidiaConfig {
 	nvidiaConfig.DeviceSplitCount = config.DeviceSplitCount
 	nvidiaConfig.DeviceCoreScaling = config.DeviceCoresScaling
 	nvidiaConfig.GPUMemoryFactor = config.GPUMemoryFactor
+	nvidiaConfig.DeviceMemoryScaling = config.DeviceMemoryScaling
+	nvidiaConfig.MigStrategy = migStrategyFlag
 	if err := readFromConfigFile(&nvidiaConfig); err != nil {
 		klog.InfoS("readFrom device cm error", err.Error())
 	}
@@ -582,6 +605,9 @@ func readFromConfigFile(sConfig *config.NvidiaConfig) error {
 			}
 			if val.Devicecorescaling > 0 {
 				sConfig.DeviceCoreScaling = val.Devicecorescaling
+			}
+			if val.Migstrategy != "" {
+				sConfig.MigStrategy = val.Migstrategy
 			}
 			if val.Devicesplitcount > 0 {
 				sConfig.DeviceSplitCount = val.Devicesplitcount
