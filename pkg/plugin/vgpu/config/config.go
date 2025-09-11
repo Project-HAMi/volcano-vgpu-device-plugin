@@ -39,6 +39,7 @@ type NvidiaConfig struct {
 	DisableCoreLimit             bool                   `yaml:"disableCoreLimit"`
 	MigGeometriesList            []AllowedMigGeometries `yaml:"knownMigGeometries"`
 	GPUMemoryFactor              uint                   `yaml:"gpuMemoryFactor"`
+	MigStrategy                  string                 `yaml:"migStrategy"`
 }
 
 var (
@@ -70,13 +71,14 @@ func Device() device.Interface {
 }
 
 var (
-	DeviceSplitCount   uint
-	GPUMemoryFactor    uint
-	Mode               string
-	DeviceCoresScaling float64
-	NodeName           string
-	RuntimeSocketFlag  string
-	DisableCoreLimit   bool
+	DeviceSplitCount    uint
+	GPUMemoryFactor     uint
+	Mode                string
+	DeviceCoresScaling  float64
+	DeviceMemoryScaling float64
+	NodeName            string
+	RuntimeSocketFlag   string
+	DisableCoreLimit    bool
 )
 
 type MigTemplate struct {

@@ -30,16 +30,18 @@ import (
 type DevListFunc func() []*Device
 
 type DeviceRegister struct {
-	deviceCache *DeviceCache
-	unhealthy   chan *Device
-	stopCh      chan struct{}
+	deviceCache  *DeviceCache
+	unhealthy    chan *Device
+	nvidiaConfig *config.NvidiaConfig
+	stopCh       chan struct{}
 }
 
-func NewDeviceRegister(deviceCache *DeviceCache) *DeviceRegister {
+func NewDeviceRegister(deviceCache *DeviceCache, nvidiaConfig *config.NvidiaConfig) *DeviceRegister {
 	return &DeviceRegister{
-		deviceCache: deviceCache,
-		unhealthy:   make(chan *Device),
-		stopCh:      make(chan struct{}),
+		deviceCache:  deviceCache,
+		nvidiaConfig: nvidiaConfig,
+		unhealthy:    make(chan *Device),
+		stopCh:       make(chan struct{}),
 	}
 }
 
@@ -75,12 +77,15 @@ func (r *DeviceRegister) apiDevices() *[]*util.DeviceInfo {
 		}
 
 		klog.V(3).Infoln("nvml registered device id=", dev.ID, "memory=", memory.Total, "type=", model)
-
-		registeredmem := int32(memory.Total/(1024*1024)) / int32(config.GPUMemoryFactor)
+		memTotal := memory.Total / (1024 * 1024)
+		if r.nvidiaConfig.MigStrategy == MigStrategyNone {
+			memTotal = uint64(float64(memTotal) * r.nvidiaConfig.DeviceMemoryScaling)
+		}
+		registeredmem := int32(memTotal / uint64(config.GPUMemoryFactor))
 		klog.V(3).Infoln("GPUMemoryFactor=", config.GPUMemoryFactor, "registeredmem=", registeredmem)
 		res = append(res, &util.DeviceInfo{
 			Id:     dev.ID,
-			Count:  int32(config.DeviceSplitCount),
+			Count:  int32(r.nvidiaConfig.DeviceSplitCount),
 			Devmem: registeredmem,
 			Mode:   config.Mode,
 			Type:   fmt.Sprintf("%v-%v", "NVIDIA", model),
@@ -98,7 +103,7 @@ func (r *DeviceRegister) RegisterInAnnotation() error {
 		klog.Errorln("get node error", err.Error())
 		return err
 	}
-	encodeddevices := util.EncodeNodeDevices(*devices)
+	encodeddevices := util.EncodeNodeDevices(*devices, r.nvidiaConfig.MigStrategy, r.nvidiaConfig.DeviceCoreScaling)
 	annos[util.NodeHandshake] = "Reported " + time.Now().String()
 	annos[util.NodeNvidiaDeviceRegistered] = encodeddevices
 	klog.Infoln("Reporting devices", encodeddevices, "in", time.Now().String())

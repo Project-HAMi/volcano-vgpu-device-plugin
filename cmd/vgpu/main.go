@@ -68,6 +68,7 @@ func init() {
 	rootCmd.Flags().UintVar(&config.DeviceSplitCount, "device-split-count", 2, "the number for NVIDIA device split")
 	rootCmd.Flags().UintVar(&config.GPUMemoryFactor, "gpu-memory-factor", 1, "the default gpu memory block size is 1MB")
 	rootCmd.Flags().Float64Var(&config.DeviceCoresScaling, "device-cores-scaling", 1.0, "the ratio for NVIDIA device cores scaling")
+	rootCmd.Flags().Float64Var(&config.DeviceMemoryScaling, "device-memory-scaling", 1.0, "the ratio for NVIDIA device memory scaling")
 	rootCmd.Flags().StringVar(&config.NodeName, "node-name", viper.GetString("node-name"), "node name")
 
 	rootCmd.PersistentFlags().AddGoFlagSet(util.GlobalFlagSet())
@@ -104,13 +105,13 @@ func start() error {
 	klog.Info("Starting OS watcher.")
 	sigs := NewOSWatcher(syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
-	nvidiaCfg := util.LoadNvidiaConfig()
+	nvidiaCfg := util.LoadNvidiaConfig(migStrategyFlag)
 
 	cache := nvidiadevice.NewDeviceCache()
 	cache.Start()
 	defer cache.Stop()
 
-	register := nvidiadevice.NewDeviceRegister(cache)
+	register := nvidiadevice.NewDeviceRegister(cache, nvidiaCfg)
 	register.Start()
 	defer register.Stop()
 
@@ -122,7 +123,7 @@ restart:
 		p.Stop()
 	}
 	klog.Info("Retreiving plugins.")
-	migStrategy, err := nvidiadevice.NewMigStrategy(migStrategyFlag)
+	migStrategy, err := nvidiadevice.NewMigStrategy(nvidiaCfg.MigStrategy)
 	if err != nil {
 		return fmt.Errorf("error creating MIG strategy: %v", err)
 	}

@@ -126,7 +126,7 @@ func (m *NvidiaDevicePlugin) initialize() {
 	m.server = grpc.NewServer([]grpc.ServerOption{}...)
 	m.health = make(chan *Device)
 	m.stop = make(chan interface{})
-	m.virtualDevices, _ = util.GetDevices(config.GPUMemoryFactor)
+	m.virtualDevices, _ = util.GetDevices(config.GPUMemoryFactor, m.schedulerConfig.DeviceMemoryScaling, m.migStrategy)
 }
 
 func (m *NvidiaDevicePlugin) cleanup() {
@@ -374,7 +374,7 @@ func (m *NvidiaDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.Device
 		}
 
 	} else {
-		_ = s.Send(&pluginapi.ListAndWatchResponse{Devices: m.apiDevices()})
+		_ = s.Send(&pluginapi.ListAndWatchResponse{Devices: m.apiDevices(m.schedulerConfig.DeviceCoreScaling)})
 		for {
 			select {
 			case <-m.stop:
@@ -383,7 +383,7 @@ func (m *NvidiaDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.Device
 				// FIXME: there is no way to recover from the Unhealthy state.
 				//d.Health = pluginapi.Unhealthy
 				log.Printf("'%s' device marked unhealthy: %s", m.resourceName, d.ID)
-				_ = s.Send(&pluginapi.ListAndWatchResponse{Devices: m.apiDevices()})
+				_ = s.Send(&pluginapi.ListAndWatchResponse{Devices: m.apiDevices(m.schedulerConfig.DeviceCoreScaling)})
 			}
 		}
 	}
@@ -559,7 +559,7 @@ func (m *NvidiaDevicePlugin) deviceIDsFromUUIDs(uuids []string) []string {
 	return uuids
 }
 
-func (m *NvidiaDevicePlugin) apiDevices() []*pluginapi.Device {
+func (m *NvidiaDevicePlugin) apiDevices(coreScaling float64) []*pluginapi.Device {
 	if strings.Compare(m.migStrategy, "mixed") == 0 {
 		var pdevs []*pluginapi.Device
 		for _, d := range m.cachedDevices {
@@ -589,7 +589,11 @@ func (m *NvidiaDevicePlugin) apiDevices() []*pluginapi.Device {
 	if strings.Compare(m.resourceName, util.ResourceCores) == 0 {
 		for _, dev := range devices {
 			i := 0
-			for i < 100 {
+			cores := 100
+			if strings.Compare(m.migStrategy, "none") == 0 {
+				cores = int(coreScaling * float64(100))
+			}
+			for i < cores {
 				res = append(res, &pluginapi.Device{
 					ID:       fmt.Sprintf("%v-core-%v", dev.ID, i),
 					Health:   dev.Health,
