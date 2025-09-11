@@ -85,7 +85,7 @@ func (r *DeviceRegister) apiDevices() *[]*util.DeviceInfo {
 		klog.V(3).Infoln("GPUMemoryFactor=", config.GPUMemoryFactor, "registeredmem=", registeredmem)
 		res = append(res, &util.DeviceInfo{
 			Id:     dev.ID,
-			Count:  int32(config.DeviceSplitCount),
+			Count:  int32(r.nvidiaConfig.DeviceSplitCount),
 			Devmem: registeredmem,
 			Mode:   config.Mode,
 			Type:   fmt.Sprintf("%v-%v", "NVIDIA", model),
