@@ -352,9 +352,6 @@ func (m *NvidiaDevicePlugin) MIGAllocate(ctx context.Context, reqs *pluginapi.Al
 
 // Allocate which return list of devices.
 func (m *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.AllocateRequest) (*pluginapi.AllocateResponse, error) {
-	for idx, val := range reqs.ContainerRequests {
-		klog.Infoln("into Allocate", idx, ":", len(val.DevicesIDs))
-	}
 	if len(reqs.ContainerRequests) > 1 {
 		return &pluginapi.AllocateResponse{}, errors.New("multiple Container Requests not supported")
 	}
