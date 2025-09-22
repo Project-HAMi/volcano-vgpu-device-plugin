@@ -235,7 +235,7 @@ spec:
           mountPath: /usr/local/vgpu
         - name: hosttmp
           mountPath: /tmp
-      - image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.10.0
+      - image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.11.0
         name: monitor
         command:
         - /bin/bash
