@@ -418,12 +418,13 @@ func GetDevices(gpuMemoryFactor uint) ([]*pluginapi.Device, map[uint]string) {
 	return virtualDevs, deviceByIndex
 }
 
-func GetDeviceNums() int {
+func GetDeviceNums() (int, error) {
 	count, ret := config.Nvml().DeviceGetCount()
 	if ret != nvml.SUCCESS {
 		klog.Error(`nvml get count error ret=`, ret)
+		return 0, fmt.Errorf("nvml get count error ret: %s", nvml.ErrorString(ret))
 	}
-	return count
+	return count, nil
 }
 
 func GetIndexAndTypeFromUUID(uuid string) (string, int) {

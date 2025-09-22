@@ -77,9 +77,9 @@ We will be editing the docker daemon config file which is usually present at `/e
 > *if `runtimes` is not already present, head to the install page of [nvidia-docker](https://github.com/NVIDIA/nvidia-docker)*
 
 
-### Configure scheduler
+### Configuration
 
-update the scheduler configuration:
+You need to enable vgpu in volcano-scheduler configMap:
 
 ```shell script
 kubectl edit cm -n volcano-system volcano-scheduler-configmap
@@ -105,13 +105,30 @@ data:
       - name: deviceshare
         arguments:
           deviceshare.VGPUEnable: true # enable vgpu
+          deviceshare.SchedulePolicy: binpack  # scheduling policy. binpack / spread
       - name: predicates
       - name: proportion
       - name: nodeorder
       - name: binpack
 ```
 
-Customize your installation by adjusting the [configs](doc/config.md)
+### Sharing Mode
+
+Volcano-vgpu supports two types of device-sharing: `HAMi-core` and `dynamia-mig`, A node can either using `HAMi-core`, or `Dynamic-mig`. Heterogeneous is supported(a part of node using HAMi-core, the other using Dynamic-mig)
+
+A brief introduction about these two modes:
+
+HAMi-core is a user-layer resource isolator provided by HAMi community, works on all types of GPU.
+
+Dynamic-mig is a hardware resource isolator, works on Ampere arch or later GPU. 
+
+The table below shows the summary:
+| Mode        | Isolation        | MIG GPU Required | Annotation | Core/Memory Control | Recommended For            |
+| ----------- | ---------------- | ---------------- | ---------- | ------------------- | -------------------------- |
+| HAMI-core   | Software (VCUDA) | No               | No         | Yes                 | General workloads          |
+| Dynamic MIG | Hardware         | Yes              | Yes        | MIG-controlled      | Performance-sensitive jobs |
+
+You can set the sharing mode and customize your installation by adjusting the [configs](doc/config.md)
 
 
 ### Enabling GPU Support in Kubernetes
@@ -130,28 +147,7 @@ Check the node status, it is ok if `volcano.sh/vgpu-number` is included in the a
 ```shell script
 $ kubectl get node {node name} -oyaml
 ...
-status:
-  addresses:
-  - address: 172.17.0.3
-    type: InternalIP
-  - address: volcano-control-plane
-    type: Hostname
-  allocatable:
-    cpu: "4"
-    ephemeral-storage: 123722704Ki
-    hugepages-1Gi: "0"
-    hugepages-2Mi: "0"
-    memory: 8174332Ki
-    pods: "110"
-    volcano.sh/vgpu-memory: "89424"
-    volcano.sh/vgpu-number: "10"    # vGPU resource
   capacity:
-    cpu: "4"
-    ephemeral-storage: 123722704Ki
-    hugepages-1Gi: "0"
-    hugepages-2Mi: "0"
-    memory: 8174332Ki
-    pods: "110"
     volcano.sh/vgpu-memory: "89424"
     volcano.sh/vgpu-number: "10"   # vGPU resource
 ```
@@ -166,6 +162,8 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: gpu-pod1
+  annotations:
+    volcano.sh/vgpu-mode: "hami-core" # (Optional, 'hami-core' or 'mig')
 spec:
   schedulerName: volcano
   containers:
@@ -188,6 +186,7 @@ You can validate device memory using nvidia-smi inside container:
 > **WARNING:** *if you don't request GPUs when using the device plugin with NVIDIA images all
 > the GPUs on the machine will be exposed inside your container.
 > The number of vgpu used by a container can not exceed the number of gpus on that node.*
+> You can specify the mode of this task by assigning `volcano.sh/vgpu-mode` annotations, If not, both modes are possible.
 
 ### Monitor
 
