@@ -93,11 +93,6 @@ func getOldestPod(pods []v1.Pod, nodename string) *v1.Pod {
 	}
 	klog.V(4).Infof("oldest pod %#v, predicate time: %#v", oldest.Name,
 		oldest.Annotations[AssignedTimeAnnotations])
-	annotation := map[string]string{AssignedTimeAnnotations: strconv.FormatUint(math.MaxUint64, 10)}
-	if err := PatchPodAnnotations(&oldest, annotation); err != nil {
-		klog.Errorf("update pod %s failed, err: %v", oldest.Name, err)
-		return nil
-	}
 	return &oldest
 }
 
@@ -197,6 +192,7 @@ func DecodeContainerDevices(str string) ContainerDevices {
 }
 
 func DecodePodDevices(str string) PodDevices {
+	klog.Infoln("DecodePodDevices=", str)
 	if len(str) == 0 {
 		return PodDevices{}
 	}
@@ -210,7 +206,7 @@ func DecodePodDevices(str string) PodDevices {
 
 func GetNextDeviceRequest(dtype string, p v1.Pod) (v1.Container, ContainerDevices, error) {
 	pdevices := DecodePodDevices(p.Annotations[AssignedIDsToAllocateAnnotations])
-	klog.Infoln("pdevices=", pdevices)
+	klog.Infoln("pdevices=", pdevices, "p.name", p.Name, "annos", p.Annotations)
 	res := ContainerDevices{}
 	for idx, val := range pdevices {
 		found := false
@@ -273,6 +269,7 @@ func PodAllocationTrySuccess(nodeName string, pod *v1.Pod) {
 func PodAllocationSuccess(nodeName string, pod *v1.Pod) {
 	newannos := make(map[string]string)
 	newannos[DeviceBindPhase] = DeviceBindSuccess
+	newannos[AssignedTimeAnnotations] = strconv.FormatUint(math.MaxUint64, 10)
 	err := PatchPodAnnotations(pod, newannos)
 	if err != nil {
 		klog.Errorf("patchPodAnnotations failed:%v", err.Error())
@@ -286,6 +283,7 @@ func PodAllocationSuccess(nodeName string, pod *v1.Pod) {
 func PodAllocationFailed(nodeName string, pod *v1.Pod) {
 	newannos := make(map[string]string)
 	newannos[DeviceBindPhase] = DeviceBindFailed
+	newannos[AssignedTimeAnnotations] = strconv.FormatUint(math.MaxUint64, 10)
 	err := PatchPodAnnotations(pod, newannos)
 	if err != nil {
 		klog.Errorf("patchPodAnnotations failed:%v", err.Error())

@@ -405,7 +405,7 @@ func (m *NvidiaDevicePlugin) MIGAllocate(ctx context.Context, reqs *pluginapi.Al
 
 		response.Envs = m.apiEnvs(m.deviceListEnvvar, deviceIDs)
 
-		klog.Infof("response=", response.Envs)
+		klog.V(3).Infof("response", "env", response.Envs)
 		responses.ContainerResponses = append(responses.ContainerResponses, &response)
 	}
 
@@ -443,7 +443,7 @@ func (m *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 
 	for idx := range reqs.ContainerRequests {
 		currentCtr, devreq, err := util.GetNextDeviceRequest(util.NvidiaGPUDevice, *current)
-		klog.Infoln("deviceAllocateFromAnnotation=", devreq)
+		klog.V(3).InfoS("deviceAllocateFromAnnotation=", "request", devreq)
 		if err != nil {
 			klog.Errorln("get device from annotation failed", err.Error())
 			util.PodAllocationFailed(nodename, current)
