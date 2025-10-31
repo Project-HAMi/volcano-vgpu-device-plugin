@@ -146,3 +146,48 @@ type DevicePluginConfigs struct {
 		FilterDevice        *FilterDevice `json:"filterdevices"`
 	} `json:"nodeconfig"`
 }
+
+var (
+	filterOnce sync.Once
+	uuidMap    map[string]struct{}
+	indexMap   map[uint]struct{}
+)
+
+func FilterDeviceToRegister(uuid string, index int) bool {
+	filterOnce.Do(initFilter)
+	if len(uuidMap) == 0 && len(indexMap) == 0 {
+		return false
+	}
+
+	if _, ok := uuidMap[uuid]; ok {
+		return true
+	}
+
+	if _, ok := indexMap[uint(index)]; ok {
+		return true
+	}
+
+	return false
+}
+
+func initFilter() {
+	uuidMap = make(map[string]struct{})
+	indexMap = make(map[uint]struct{})
+	if DevicePluginFilterDevice == nil {
+		return
+	}
+
+	if len(DevicePluginFilterDevice.UUID) > 0 {
+		uuidMap = make(map[string]struct{}, len(DevicePluginFilterDevice.UUID))
+		for _, u := range DevicePluginFilterDevice.UUID {
+			uuidMap[u] = struct{}{}
+		}
+	}
+
+	if len(DevicePluginFilterDevice.Index) > 0 {
+		indexMap = make(map[uint]struct{}, len(DevicePluginFilterDevice.Index))
+		for _, idx := range DevicePluginFilterDevice.Index {
+			indexMap[idx] = struct{}{}
+		}
+	}
+}
