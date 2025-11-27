@@ -96,6 +96,14 @@ func (g *GpuDeviceManager) Devices() []*Device {
 		d, ret := config.Nvml().DeviceGetHandleByIndex(i)
 		check(ret)
 
+		uuid, ret := d.GetUUID()
+		check(ret)
+		// Filter GPU device
+		if config.FilterDeviceToRegister(uuid, i) {
+			klog.V(5).Infof("Filtering out GPU device index=%d, uuid=%s", i, uuid)
+			continue
+		}
+
 		migMode, _, ret := d.GetMigMode()
 		if ret != nvml.SUCCESS {
 			if ret == nvml.ERROR_NOT_SUPPORTED {

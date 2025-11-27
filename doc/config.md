@@ -40,8 +40,7 @@ After making changes, restart the volcano-vgpu-device-plugin and volcano-schedul
 ## Node Configs
 
 **Note:**
-All the configurations listed below are managed within the `volcano-vgpu-node-config` ConfigMap.
-You can update these configurations using the following methods:
+volcano-vgpu-device-plugin allows for per-node configuration of the device plugin behavior, and all these settings are centrally managed within the volcano-vgpu-node-config ConfigMap. You can update them using the following methods:
 
 ```bash
 kubectl edit configmap volcano-vgpu-node-config -n <namespace>
@@ -56,3 +55,8 @@ String type, `hami-core` for using hami-core for container resource limitation, 
 Integer type, device memory oversubscription on that node
 * `devicecorescaling`: 
 Integer type, device core oversubscription on that node 
+* `devicesplitcount`: Allowed number of tasks sharing a device.
+* `filterdevices`: Devices that are not registered to HAMi.
+  * `uuid`: UUIDs of devices to ignore
+  * `index`: Indexes of devices to ignore.
+  * A device is ignored by HAMi if it's in `uuid` or `index` list.
