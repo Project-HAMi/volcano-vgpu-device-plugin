@@ -201,7 +201,33 @@ You can also collect the **GPU utilization**, **GPU memory usage**, **pods' GPU 
 ```
 curl {volcano device plugin pod ip}:9394/metrics
 ```
-![img](./doc/vgpu_device_plugin_metrics.png)
+
+Example:
+```
+# HELP Device_last_kernel_of_container Container device last kernel description
+# TYPE Device_last_kernel_of_container gauge
+Device_last_kernel_of_container{ctrname="cuda-container",deviceuuid="GPU-xxxx",podname="hami-device",podnamespace="default",vdeviceid="0",zone="vGPU"} 0
+# HELP Device_memory_desc_of_container Container device meory description
+# TYPE Device_memory_desc_of_container counter
+Device_memory_desc_of_container{context="331350016",ctrname="cuda-container",data="1778516992",deviceuuid="GPU-xxxx",module="0",offset="0",podname="hami-device",podnamespace="default",vdeviceid="0",zone="vGPU"} 2.109867008e+09
+# HELP Device_utilization_desc_of_container Container device utilization description
+# TYPE Device_utilization_desc_of_container gauge
+Device_utilization_desc_of_container{ctrname="cuda-container",deviceuuid="GPU-xxxx",podname="hami-device",podnamespace="default",vdeviceid="0",zone="vGPU"} 99
+# HELP HostCoreUtilization GPU core utilization
+# TYPE HostCoreUtilization gauge
+HostCoreUtilization{deviceidx="0",deviceuuid="GPU-xxxx",zone="vGPU"} 0
+HostCoreUtilization{deviceidx="1",deviceuuid="GPU-xxxx",zone="vGPU"} 100
+# HELP HostGPUMemoryUsage GPU device memory usage
+# TYPE HostGPUMemoryUsage gauge
+HostGPUMemoryUsage{deviceidx="0",deviceuuid="GPU-xxxx",zone="vGPU"} 5.6366661632e+10
+HostGPUMemoryUsage{deviceidx="1",deviceuuid="GPU-xxxx",zone="vGPU"} 5.8484457472e+10
+# HELP vGPU_device_memory_limit_in_bytes vGPU device limit
+# TYPE vGPU_device_memory_limit_in_bytes gauge
+vGPU_device_memory_limit_in_bytes{ctrname="cuda-container",deviceuuid="GPU-xxxx",podname="hami-device",podnamespace="default",vdeviceid="0",zone="vGPU"} 3.145728e+09
+# HELP vGPU_device_memory_usage_in_bytes vGPU device usage
+# TYPE vGPU_device_memory_usage_in_bytes gauge
+vGPU_device_memory_usage_in_bytes{ctrname="cuda-container",deviceuuid="GPU-xxxx",podname="hami-device",podnamespace="default",vdeviceid="0",zone="vGPU"} 2.109867008e+09
+```
 
 # Issues and Contributing
 [Checkout the Contributing document!](CONTRIBUTING.md)
