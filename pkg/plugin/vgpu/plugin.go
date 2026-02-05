@@ -509,6 +509,16 @@ func (m *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 					ReadOnly: true},
 				)
 			}
+
+			// If pass-device-specs is enabled, explicitly mount GPU device nodes via kubelet
+			// This allows containers to access GPU devices without requiring nvidia-container-runtime
+			// making it compatible with standard OCI runtimes (containerd, docker, etc.)
+			if config.PassDeviceSpecs {
+				deviceSpecs := m.GetDeviceSpecs(devreq)
+				response.Devices = append(response.Devices, deviceSpecs...)
+				klog.V(3).Infof("Added %d device specs to allocation response for pod %s",
+					len(deviceSpecs), current.Name)
+			}
 		}
 		responses.ContainerResponses = append(responses.ContainerResponses, &response)
 	}
@@ -660,6 +670,103 @@ func (m *NvidiaDevicePlugin) GetContainerDeviceStrArray(c util.ContainerDevices)
 	}
 	klog.V(3).Infoln("mig current=", m.migCurrent, ":", needsreset, "position=", position, "uuid lists", tmp)
 	return tmp
+}
+
+// GetDeviceSpecs returns a list of pluginapi.DeviceSpec for the given container devices
+// This method is used when PassDeviceSpecs is enabled to explicitly mount GPU device nodes
+// via kubelet's Device Plugin API, enabling GPU access without nvidia-container-runtime
+func (m *NvidiaDevicePlugin) GetDeviceSpecs(containerDevices util.ContainerDevices) []*pluginapi.DeviceSpec {
+	// Define optional control devices that should be checked for existence before adding
+	// These devices may not be present on all systems
+	optionalDevices := map[string]bool{
+		"/dev/nvidiactl":        true,
+		"/dev/nvidia-uvm":       true,
+		"/dev/nvidia-uvm-tools": true,
+		"/dev/nvidia-modeset":   true,
+	}
+
+	var deviceSpecs []*pluginapi.DeviceSpec
+	devicePathsMap := make(map[string]bool) // Track unique paths to avoid duplicates
+
+	// Get all available devices from the cache to lookup device paths by UUID
+	var allDevices []*Device
+	if m.migStrategy == "none" {
+		allDevices = m.deviceCache.GetCache()
+	} else if m.migStrategy == "mixed" {
+		allDevices = m.cachedDevices
+	}
+
+	// For each requested device, find its Device object and extract paths
+	for _, containerDevice := range containerDevices {
+		deviceUUID := containerDevice.UUID
+
+		// Handle MIG devices (UUIDs contain "[")
+		if strings.Contains(deviceUUID, "[") {
+			// For MIG devices, get the actual MIG UUID after template generation
+			devtype, devindex := util.GetIndexAndTypeFromUUID(deviceUUID)
+			position, needsReset := m.GenerateMigTemplate(devtype, devindex, containerDevice)
+			if needsReset {
+				m.ApplyMigTemplate()
+			}
+			deviceUUID = util.GetMigUUIDFromIndex(deviceUUID, position)
+		}
+
+		// Find the Device object matching this UUID
+		for _, device := range allDevices {
+			if device.ID == deviceUUID {
+				// Add all paths from this device
+				for _, path := range device.Paths {
+					if !devicePathsMap[path] {
+						devicePathsMap[path] = true
+						spec := &pluginapi.DeviceSpec{
+							ContainerPath: path,
+							HostPath:      path, // Use same path for both container and host
+							Permissions:   "rw",
+						}
+						deviceSpecs = append(deviceSpecs, spec)
+						klog.V(4).Infof("Added device spec for GPU device: %s", path)
+					}
+				}
+				break
+			}
+		}
+	}
+
+	// Add control devices (nvidiactl, nvidia-uvm, etc.) that are shared across all GPUs
+	// These are required for CUDA to function properly
+	controlDevicePaths := []string{
+		"/dev/nvidiactl",
+		"/dev/nvidia-uvm",
+		"/dev/nvidia-uvm-tools",
+		"/dev/nvidia-modeset",
+	}
+
+	for _, path := range controlDevicePaths {
+		// Skip if already added
+		if devicePathsMap[path] {
+			continue
+		}
+
+		// For optional devices, check if they exist on the host before adding
+		if optionalDevices[path] {
+			if _, err := os.Stat(path); err != nil {
+				klog.V(4).Infof("Skipping optional device %s: not present on host", path)
+				continue
+			}
+		}
+
+		devicePathsMap[path] = true
+		spec := &pluginapi.DeviceSpec{
+			ContainerPath: path,
+			HostPath:      path,
+			Permissions:   "rw",
+		}
+		deviceSpecs = append(deviceSpecs, spec)
+		klog.V(4).Infof("Added device spec for control device: %s", path)
+	}
+
+	klog.V(3).Infof("Generated %d device specs for container", len(deviceSpecs))
+	return deviceSpecs
 }
 
 func (m *NvidiaDevicePlugin) GenerateMigTemplate(devtype string, devindex int, val util.ContainerDevice) (int, bool) {
