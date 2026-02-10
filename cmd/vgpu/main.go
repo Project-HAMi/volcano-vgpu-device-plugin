@@ -68,6 +68,10 @@ func init() {
 	rootCmd.Flags().UintVar(&config.DeviceSplitCount, "device-split-count", 2, "the number for NVIDIA device split")
 	rootCmd.Flags().UintVar(&config.GPUMemoryFactor, "gpu-memory-factor", 1, "the default gpu memory block size is 1MB")
 	rootCmd.Flags().Float64Var(&config.DeviceCoresScaling, "device-cores-scaling", 1.0, "the ratio for NVIDIA device cores scaling")
+	// Add pass-device-specs flag to enable explicit device mounting via kubelet Device Plugin API
+	// When enabled, device files (/dev/nvidia*, /dev/nvidiactl, etc.) are mounted directly by kubelet
+	// without requiring nvidia-container-runtime, making it compatible with standard OCI runtimes
+	rootCmd.Flags().BoolVar(&config.PassDeviceSpecs, "pass-device-specs", false, "pass the list of DeviceSpecs to the kubelet on Allocate()")
 	rootCmd.Flags().StringVar(&config.NodeName, "node-name", viper.GetString("node-name"), "node name")
 
 	rootCmd.PersistentFlags().AddGoFlagSet(util.GlobalFlagSet())

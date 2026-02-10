@@ -39,6 +39,10 @@ type NvidiaConfig struct {
 	DisableCoreLimit             bool                   `yaml:"disableCoreLimit"`
 	MigGeometriesList            []AllowedMigGeometries `yaml:"knownMigGeometries"`
 	GPUMemoryFactor              uint                   `yaml:"gpuMemoryFactor"`
+	// PassDeviceSpecs enables explicit device mounting via kubelet Device Plugin API
+	// When true, device files are passed to kubelet via DeviceSpec, allowing containers
+	// to access GPU devices without requiring nvidia-container-runtime
+	PassDeviceSpecs              bool                   `yaml:"passDeviceSpecs"`
 }
 
 var (
@@ -77,6 +81,10 @@ var (
 	NodeName           string
 	RuntimeSocketFlag  string
 	DisableCoreLimit   bool
+	// PassDeviceSpecs controls whether GPU device files are explicitly passed to kubelet
+	// via the DeviceSpec field in ContainerAllocateResponse, enabling GPU access without
+	// nvidia-container-runtime (compatible with standard OCI runtimes like containerd/docker)
+	PassDeviceSpecs    bool
 )
 
 type MigTemplate struct {
