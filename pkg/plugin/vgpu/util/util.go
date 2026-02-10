@@ -217,7 +217,7 @@ func DecodeContainerDevices(str string) (c ContainerDevices, count int) {
 			devcores, _ := strconv.ParseInt(tmpstr[3], 10, 32)
 			tmpdev.Usedcores = int32(devcores)
 			contdev = append(contdev, tmpdev)
-            klog.V(4).Infoln("val=", val)
+			klog.V(4).Infoln("val=", val)
 		}
 	}
 	//klog.V(4).Infoln("contdev=", contdev)
@@ -592,6 +592,12 @@ func LoadNvidiaConfig() *config.NvidiaConfig {
 		klog.InfoS("readFrom device cm error", err.Error())
 	}
 	klog.Infoln("Loaded config=", nvidiaConfig)
+	// Sync the loaded config back to global variables so that
+	// register.go and plugin.go can use the correct values
+	config.DeviceSplitCount = nvidiaConfig.DeviceSplitCount
+	config.DeviceCoresScaling = nvidiaConfig.DeviceCoreScaling
+	config.GPUMemoryFactor = nvidiaConfig.GPUMemoryFactor
+
 	return &nvidiaConfig
 }
 
