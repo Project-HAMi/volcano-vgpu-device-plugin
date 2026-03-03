@@ -139,14 +139,7 @@ func (cc ClusterManagerCollector) Describe(ch chan<- *prometheus.Desc) {
 func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
 	klog.Info("Starting to collect metrics for vGPUMonitor")
 	containerLister := cc.ClusterManager.containerLister
-	if err := containerLister.Update(); err != nil {
-		klog.Error("Update container error: %s", err.Error())
-	}
 
-	nvret := config.Nvml().Init()
-	if nvret != nvml.SUCCESS {
-		klog.Errorf("nvml Init err= %v", nvret)
-	}
 	devnum, nvret := config.Nvml().DeviceGetCount()
 	if nvret != nvml.SUCCESS {
 		klog.Errorf("nvml GetDeviceCount err= %v", nvret)
