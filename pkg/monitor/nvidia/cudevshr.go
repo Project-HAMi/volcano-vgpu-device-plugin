@@ -112,7 +112,13 @@ func (l *ContainerLister) UnLock() {
 }
 
 func (l *ContainerLister) ListContainers() map[string]*ContainerUsage {
-	return l.containers
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	snapshot := make(map[string]*ContainerUsage, len(l.containers))
+	for k, v := range l.containers {
+		snapshot[k] = v
+	}
+	return snapshot
 }
 
 func (l *ContainerLister) Clientset() *kubernetes.Clientset {
