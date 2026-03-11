@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"volcano.sh/k8s-device-plugin/pkg/monitor/nvidia"
 	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/config"
@@ -225,6 +226,10 @@ func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
 				}
 				for i := 0; i < c.Info.DeviceNum(); i++ {
 					uuid := c.Info.DeviceUUID(i)[0:40]
+					if !utf8.ValidString(uuid) {
+						klog.Warningf("skipping device %d for pod %s/%s: UUID contains invalid UTF-8 (shared memory not yet initialized)", i, pod.Namespace, pod.Name)
+						continue
+					}
 					memoryTotal := c.Info.DeviceMemoryTotal(i)
 					memoryLimit := c.Info.DeviceMemoryLimit(i)
 					memoryContextSize := c.Info.DeviceMemoryContextSize(i)
