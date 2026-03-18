@@ -31,6 +31,7 @@ import (
 	"gopkg.in/yaml.v2"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
+	kubeletdevicepluginv1beta1 "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 	"volcano.sh/k8s-device-plugin/pkg/lock"
 	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/config"
 	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/util"
@@ -430,7 +431,7 @@ func (m *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 	}
 	nodename := os.Getenv("NODE_NAME")
 
-    // Find the pod scheduled on the current node with the oldest annotation timestamp, then allocate devices for the pod
+	// Find the pod scheduled on the current node with the oldest annotation timestamp, then allocate devices for the pod
 	gpuAmount := len(reqs.ContainerRequests[0].DevicesIDs)
 	current, err := util.GetPendingPod(nodename, gpuAmount)
 	if err != nil {
@@ -832,6 +833,11 @@ func (m *NvidiaDevicePlugin) GenerateMigTemplate(devtype string, devindex int, v
 	}
 
 	return position, needsreset
+}
+
+func (m *NvidiaDevicePlugin) GetPreferredAllocation(ctx context.Context, req *kubeletdevicepluginv1beta1.PreferredAllocationRequest) (*kubeletdevicepluginv1beta1.PreferredAllocationResponse, error) {
+	response := &kubeletdevicepluginv1beta1.PreferredAllocationResponse{}
+	return response, nil
 }
 
 // Helper function to check if a model is in the list of models.
