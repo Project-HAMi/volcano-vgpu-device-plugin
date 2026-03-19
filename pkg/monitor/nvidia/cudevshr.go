@@ -126,7 +126,15 @@ func (l *ContainerLister) Clientset() *kubernetes.Clientset {
 }
 
 func (l *ContainerLister) Update() error {
-	pods, err := l.clientset.CoreV1().Pods("").List(context.Background(), metav1.ListOptions{})
+	// Scope pod listing to this node to avoid cluster-wide API calls on every
+	// scrape. NODE_NAME is injected via the Downward API in the official manifest.
+	// Fall back to listing all pods if unset to preserve backward compatibility
+	// with custom deployments that may not have NODE_NAME configured.
+	listOptions := metav1.ListOptions{}
+	if nodeName := os.Getenv("NODE_NAME"); nodeName != "" {
+		listOptions.FieldSelector = "spec.nodeName=" + nodeName
+	}
+	pods, err := l.clientset.CoreV1().Pods("").List(context.Background(), listOptions)
 	if err != nil {
 		return err
 	}
