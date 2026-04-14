@@ -30,6 +30,7 @@ import (
 	"strings"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	"github.com/urfave/cli/v2"
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -574,7 +575,11 @@ func ExtractMigTemplatesFromUUID(uuid string) (string, int, error) {
 	return templateGroupName, pos, nil
 }
 
-func LoadNvidiaConfig() *config.NvidiaConfig {
+func LoadNvidiaConfig(c *cli.Context) *config.NvidiaConfig {
+	config.PassDeviceSpecs = c.Bool("pass-device-specs")
+	config.DeviceSplitCount = c.Uint("device-split-count")
+	config.GPUMemoryFactor = c.Uint("gpu-memory-factor")
+	config.DeviceCoresScaling = c.Float64("device-cores-scaling")
 	configs, err := LoadConfigFromCM("volcano-vgpu-device-config")
 	if err != nil {
 		klog.InfoS("configMap not found", err.Error())

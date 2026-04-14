@@ -38,6 +38,7 @@ import (
 	"volcano.sh/k8s-device-plugin/pkg/info"
 	"volcano.sh/k8s-device-plugin/pkg/plugin"
 	"volcano.sh/k8s-device-plugin/pkg/rm"
+	"volcano.sh/k8s-device-plugin/pkg/util"
 	"volcano.sh/k8s-device-plugin/pkg/watch"
 )
 
@@ -181,6 +182,26 @@ func main() {
 			EnvVars:     []string{"CDI_FEATURE_FLAGS"},
 			Destination: &o.cdiFeatureFlags,
 		},
+		&cli.UintFlag{
+			Name:  "device-split-count",
+			Usage: "the number for NVIDIA device split",
+			Value: 2,
+		},
+		&cli.UintFlag{
+			Name:  "gpu-memory-factor",
+			Usage: "the default gpu memory block size is 1MB",
+			Value: 1,
+		},
+		&cli.Float64Flag{
+			Name:  "device-cores-scaling",
+			Usage: "the ratio for NVIDIA device cores scaling",
+			Value: 1.0,
+		},
+		&cli.BoolFlag{
+			Name:  "pass-device-specs",
+			Usage: "pass the list of DeviceSpecs to the kubelet on Allocate()",
+			Value: false,
+		},
 	}
 	o.flags = c.Flags
 
@@ -274,6 +295,8 @@ func start(c *cli.Context, o *options) error {
 
 	klog.Info("Starting OS watcher.")
 	sigs := watch.Signals(syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+
+	util.LoadNvidiaConfig(c)
 
 	var started bool
 	var restartTimeout <-chan time.Time
