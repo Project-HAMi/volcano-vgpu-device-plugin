@@ -34,6 +34,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 
 	spec "volcano.sh/k8s-device-plugin/api/config/v1"
+	"volcano.sh/k8s-device-plugin/pkg/config"
 	"volcano.sh/k8s-device-plugin/pkg/info"
 	"volcano.sh/k8s-device-plugin/pkg/plugin"
 	"volcano.sh/k8s-device-plugin/pkg/rm"
@@ -248,6 +249,20 @@ func loadConfig(c *cli.Context, flags []cli.Flag) (*spec.Config, error) {
 
 func start(c *cli.Context, o *options) error {
 	klog.InfoS(fmt.Sprintf("Starting %s", c.App.Name), "version", c.App.Version)
+
+	klog.Info("Loading NVML")
+	if nvret := config.Nvml().Init(); nvret != nvml.SUCCESS {
+		klog.Infof("Failed to initialize NVML: %v.", nvret)
+		klog.Infof("If this is a GPU node, did you set the docker default runtime to `nvidia`?")
+		klog.Infof("You can check the prerequisites at: https://github.com/NVIDIA/k8s-device-plugin#prerequisites")
+		klog.Infof("You can learn how to set the runtime at: https://github.com/NVIDIA/k8s-device-plugin#quick-start")
+		klog.Infof("If this is not a GPU node, you should set up a toleration or nodeSelector to only deploy this plugin on GPU nodes")
+		if c.Bool("fail-on-init-error") {
+			return fmt.Errorf("failed to initialize NVML: %v", nvret)
+		}
+		select {}
+	}
+	defer func() { klog.Info("Shutdown of NVML returned:", config.Nvml().Shutdown()) }()
 
 	kubeletSocketDir := filepath.Dir(o.kubeletSocket)
 	klog.Infof("Starting FS watcher for %v", kubeletSocketDir)

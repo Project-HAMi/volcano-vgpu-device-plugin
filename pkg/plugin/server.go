@@ -31,6 +31,7 @@ import (
 
 	spec "volcano.sh/k8s-device-plugin/api/config/v1"
 	"volcano.sh/k8s-device-plugin/pkg/cdi"
+	"volcano.sh/k8s-device-plugin/pkg/config"
 	"volcano.sh/k8s-device-plugin/pkg/imex"
 	"volcano.sh/k8s-device-plugin/pkg/rm"
 
@@ -156,6 +157,7 @@ func (plugin *nvidiaDevicePlugin) Start(kubeletSocket string) error {
 		}
 	}()
 
+	go plugin.WatchAndRegister()
 	return nil
 }
 
@@ -268,7 +270,6 @@ func (plugin *nvidiaDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.D
 	if err := s.Send(&pluginapi.ListAndWatchResponse{Devices: plugin.apiDevices()}); err != nil {
 		return err
 	}
-
 	for {
 		select {
 		case <-plugin.stop:
@@ -554,4 +555,22 @@ func (plugin *nvidiaDevicePlugin) apiDeviceSpecs(devRoot string, ids []string) [
 	}
 
 	return specs
+}
+
+func (plugin *nvidiaDevicePlugin) WatchAndRegister() {
+	klog.Infof("into WatchAndRegister")
+	for {
+		if len(config.Mode) == 0 {
+			klog.V(5).Info("register skipped, waiting for device config to be loaded")
+			time.Sleep(time.Second * 2)
+			continue
+		}
+		err := RegisterInAnnotation(plugin.apiDevices())
+		if err != nil {
+			klog.Errorf("register error, %v", err)
+			time.Sleep(time.Second * 5)
+		} else {
+			time.Sleep(time.Second * 30)
+		}
+	}
 }
