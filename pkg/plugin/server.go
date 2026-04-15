@@ -157,8 +157,9 @@ func (plugin *nvidiaDevicePlugin) Start(kubeletSocket string) error {
 			klog.Errorf("Failed to start health check: %v; continuing with health checks disabled", err)
 		}
 	}()
-
-	go plugin.WatchAndRegister()
+	if plugin.rm.Resource() == spec.ResourceName(util.ResourceName) {
+		go plugin.WatchAndRegister()
+	}
 	return nil
 }
 
@@ -499,8 +500,9 @@ func (plugin *nvidiaDevicePlugin) apiDevices() []*pluginapi.Device {
 		return res
 	} else if plugin.rm.Resource() == spec.ResourceName(util.ResourceCores) {
 		for _, dev := range devs {
+			coresNum := int(100 * config.DeviceCoresScaling)
 			i := 0
-			for i < 100 {
+			for i < coresNum {
 				res = append(res, &pluginapi.Device{
 					ID:       fmt.Sprintf("%v-core-%v", dev.ID, i),
 					Health:   dev.Health,
@@ -612,7 +614,7 @@ func (plugin *nvidiaDevicePlugin) WatchAndRegister() {
 			time.Sleep(time.Second * 2)
 			continue
 		}
-		err := RegisterInAnnotation(plugin.apiDevices())
+		err := RegisterInAnnotation(plugin.rm.Devices().GetPluginDevices())
 		if err != nil {
 			klog.Errorf("register error, %v", err)
 			time.Sleep(time.Second * 5)
