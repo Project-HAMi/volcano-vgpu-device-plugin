@@ -27,6 +27,7 @@ import (
 	"k8s.io/klog/v2"
 
 	spec "volcano.sh/k8s-device-plugin/api/config/v1"
+	"volcano.sh/k8s-device-plugin/pkg/util"
 )
 
 // resourceManager forms the base type for specific resource manager implementations
@@ -97,7 +98,7 @@ func (r *resourceManager) ValidateRequest(ids AnnotatedIDs) error {
 
 // AddDefaultResourcesToConfig adds default resource matching rules to config.Resources
 func AddDefaultResourcesToConfig(infolib info.Interface, nvmllib nvml.Interface, devicelib device.Interface, config *spec.Config) error {
-	_ = config.Resources.AddGPUResource("*", "gpu")
+	_ = config.Resources.AddGPUResource("*", util.ResourceName)
 	if config.Flags.MigStrategy == nil {
 		return nil
 	}

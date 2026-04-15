@@ -34,6 +34,7 @@ import (
 	"volcano.sh/k8s-device-plugin/pkg/config"
 	"volcano.sh/k8s-device-plugin/pkg/imex"
 	"volcano.sh/k8s-device-plugin/pkg/rm"
+	"volcano.sh/k8s-device-plugin/pkg/util"
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -475,7 +476,53 @@ func (plugin *nvidiaDevicePlugin) uniqueDeviceIDsFromAnnotatedDeviceIDs(ids []st
 }
 
 func (plugin *nvidiaDevicePlugin) apiDevices() []*pluginapi.Device {
-	return plugin.rm.Devices().GetPluginDevices()
+	devs := plugin.rm.Devices().GetPluginDevices()
+	/*if strings.Compare(plugin.migStrategy, "mixed") == 0 {
+		return devs
+	}*/
+	var res []*pluginapi.Device
+
+	if plugin.rm.Resource() == spec.ResourceName(util.ResourceMem) {
+		for _, dev := range devs {
+			i := 0
+			klog.Infoln("memory. ", "id=", dev.ID)
+			for i < int(32767) {
+				res = append(res, &pluginapi.Device{
+					ID:       fmt.Sprintf("%v-memory-%v", dev.ID, i),
+					Health:   dev.Health,
+					Topology: nil,
+				})
+				i++
+			}
+		}
+		klog.Infoln("res length=", len(res))
+		return res
+	} else if plugin.rm.Resource() == spec.ResourceName(util.ResourceCores) {
+		for _, dev := range devs {
+			i := 0
+			for i < 100 {
+				res = append(res, &pluginapi.Device{
+					ID:       fmt.Sprintf("%v-core-%v", dev.ID, i),
+					Health:   dev.Health,
+					Topology: nil,
+				})
+				i++
+			}
+		}
+		return res
+	}
+
+	for _, dev := range devs {
+		for i := uint(0); i < config.DeviceSplitCount; i++ {
+			id := fmt.Sprintf("%v-%v", dev.ID, i)
+			res = append(res, &pluginapi.Device{
+				ID:       id,
+				Health:   dev.Health,
+				Topology: nil,
+			})
+		}
+	}
+	return res
 }
 
 // updateResponseForDeviceListEnvVar sets the environment variable for the requested devices.

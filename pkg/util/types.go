@@ -16,7 +16,9 @@ limitations under the License.
 
 package util
 
-import "volcano.sh/k8s-device-plugin/pkg/config"
+import (
+	"volcano.sh/k8s-device-plugin/pkg/config"
+)
 
 const (
 	AssignedTimeAnnotations          = "volcano.sh/vgpu-time"
@@ -64,7 +66,6 @@ var (
 	ResourceCores         string
 	ResourceMemPercentage string
 	ResourcePriority      string
-	DebugMode             bool
 
 	MLUResourceCount  string
 	MLUResourceMemory string

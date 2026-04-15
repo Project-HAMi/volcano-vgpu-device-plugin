@@ -21,8 +21,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-
-	k8s "k8s.io/apimachinery/pkg/api/validation"
 )
 
 // ResourcePattern is used to match a resource name to a specific pattern
@@ -53,12 +51,13 @@ func NewResourceName(n string) (ResourceName, error) {
 	if len(n) > MaxResourceNameLength {
 		return "", fmt.Errorf("fully-qualified resource name must be %v characters or less: %v", MaxResourceNameLength, n)
 	}
-
-	_, name := ResourceName(n).Split()
-	invalid := k8s.NameIsDNSSubdomain(name, false)
-	if len(invalid) != 0 {
-		return "", fmt.Errorf("incorrect format for resource name '%v': %v", n, invalid)
-	}
+	/*
+		_, name := ResourceName(n).Split()
+		invalid := k8s.NameIsDNSSubdomain(name, false)
+		if len(invalid) != 0 {
+			return "", fmt.Errorf("incorrect format for resource name '%v': %v", n, invalid)
+		}
+	*/
 
 	return ResourceName(n), nil
 }

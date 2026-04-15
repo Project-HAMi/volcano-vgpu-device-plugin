@@ -21,7 +21,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"math"
 	"os"
@@ -47,16 +46,6 @@ var DevicesToHandle []string
 func init() {
 	DevicesToHandle = []string{}
 	DevicesToHandle = append(DevicesToHandle, NvidiaGPUCommonWord)
-}
-
-func GlobalFlagSet() *flag.FlagSet {
-	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	fs.StringVar(&ResourceName, "resource-name", "volcano.sh/vgpu-number", "resource name")
-	fs.StringVar(&ResourceMem, "resource-memory-name", "volcano.sh/vgpu-memory", "resource name for resource memory resources")
-	fs.StringVar(&ResourceCores, "resource-core-name", "volcano.sh/vgpu-cores", "resource name for resource core resources")
-	fs.BoolVar(&DebugMode, "debug", false, "debug mode")
-	klog.InitFlags(fs)
-	return fs
 }
 
 func GetNode(nodename string) (*v1.Node, error) {
@@ -600,6 +589,11 @@ func LoadNvidiaConfig(c *cli.Context) *config.NvidiaConfig {
 	config.DeviceSplitCount = nvidiaConfig.DeviceSplitCount
 	config.DeviceCoresScaling = nvidiaConfig.DeviceCoreScaling
 	config.GPUMemoryFactor = nvidiaConfig.GPUMemoryFactor
+
+	ResourceName = nvidiaConfig.ResourceCountName
+	ResourceMem = nvidiaConfig.ResourceMemoryName
+	ResourceCores = nvidiaConfig.ResourceCoreName
+	ResourceMemPercentage = nvidiaConfig.ResourceMemoryPercentageName
 
 	return &nvidiaConfig
 }

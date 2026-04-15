@@ -197,11 +197,6 @@ func main() {
 			Usage: "the ratio for NVIDIA device cores scaling",
 			Value: 1.0,
 		},
-		&cli.BoolFlag{
-			Name:  "pass-device-specs",
-			Usage: "pass the list of DeviceSpecs to the kubelet on Allocate()",
-			Value: false,
-		},
 	}
 	o.flags = c.Flags
 
