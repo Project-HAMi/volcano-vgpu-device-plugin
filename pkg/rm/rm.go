@@ -99,6 +99,8 @@ func (r *resourceManager) ValidateRequest(ids AnnotatedIDs) error {
 // AddDefaultResourcesToConfig adds default resource matching rules to config.Resources
 func AddDefaultResourcesToConfig(infolib info.Interface, nvmllib nvml.Interface, devicelib device.Interface, config *spec.Config) error {
 	_ = config.Resources.AddGPUResource("*", util.ResourceName)
+	_ = config.Resources.AddGPUResource("*", util.ResourceCores)
+	_ = config.Resources.AddGPUResource("*", util.ResourceMem)
 	if config.Flags.MigStrategy == nil {
 		return nil
 	}

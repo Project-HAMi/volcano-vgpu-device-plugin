@@ -36,6 +36,7 @@ import (
 	"volcano.sh/k8s-device-plugin/pkg/rm"
 	"volcano.sh/k8s-device-plugin/pkg/util"
 
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -485,9 +486,21 @@ func (plugin *nvidiaDevicePlugin) apiDevices() []*pluginapi.Device {
 
 	if plugin.rm.Resource() == spec.ResourceName(util.ResourceMem) {
 		for _, dev := range devs {
+			ndev, ret := config.Nvml().DeviceGetHandleByUUID(dev.ID)
+			if ret != nvml.SUCCESS {
+				fmt.Println("nvml new device by uuid error id=", dev.ID)
+				panic(ret)
+			}
+
+			memory, ret := config.Nvml().DeviceGetMemoryInfo(ndev)
+			if ret != nvml.SUCCESS {
+				fmt.Println("failed to get memory info for device id=", dev.ID)
+				panic(ret)
+			}
+			registeredmem := int(memory.Total/(1024*1024)) / int(config.GPUMemoryFactor)
 			i := 0
-			klog.Infoln("memory. ", "id=", dev.ID)
-			for i < int(32767) {
+			klog.Infoln("memory=", registeredmem, " id=", dev.ID)
+			for i < registeredmem {
 				res = append(res, &pluginapi.Device{
 					ID:       fmt.Sprintf("%v-memory-%v", dev.ID, i),
 					Health:   dev.Health,
