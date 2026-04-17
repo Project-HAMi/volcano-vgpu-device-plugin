@@ -321,7 +321,7 @@ func (plugin *nvidiaDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.D
 // GetPreferredAllocation returns the preferred allocation from the set of devices specified in the request
 func (plugin *nvidiaDevicePlugin) GetPreferredAllocation(ctx context.Context, r *pluginapi.PreferredAllocationRequest) (*pluginapi.PreferredAllocationResponse, error) {
 	response := &pluginapi.PreferredAllocationResponse{}
-	for _, req := range r.ContainerRequests {
+	/*for _, req := range r.ContainerRequests {
 		devices, err := plugin.rm.GetPreferredAllocation(req.AvailableDeviceIDs, req.MustIncludeDeviceIDs, int(req.AllocationSize))
 		if err != nil {
 			return nil, fmt.Errorf("error getting list of preferred allocation devices: %v", err)
@@ -332,7 +332,7 @@ func (plugin *nvidiaDevicePlugin) GetPreferredAllocation(ctx context.Context, r 
 		}
 
 		response.ContainerResponses = append(response.ContainerResponses, resp)
-	}
+	}*/
 	return response, nil
 }
 
@@ -360,7 +360,7 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 		nodelock.ReleaseNodeLock(nodeName, util.VGPUDeviceName)
 		return &pluginapi.AllocateResponse{}, errors.New("no pending pod found on node")
 	}
-	klog.V(3).InfoS("Current pending pod UID:", current.UID, "pod name", current.Name)
+	klog.V(3).InfoS("Current pending pod.", "UID", current.UID, "pod name", current.Name)
 
 	for idx, req := range reqs.ContainerRequests {
 		if strings.Contains(req.DevicesIds[0], "MIG") {
