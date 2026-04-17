@@ -58,6 +58,8 @@ const (
 
 	// DeviceConfigurationConfigMapKey specifies in what ConfigMap key the device configuration should be stored
 	DeviceConfigurationConfigMapKey = "device-config.yaml"
+
+	CoreLimitSwitch = "GPU_CORE_UTILIZATION_POLICY"
 )
 
 var (

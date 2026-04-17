@@ -27,7 +27,9 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const MaxLockRetry = 5
+const (
+	MaxLockRetry = 5
+)
 
 func setNodeLock(nodeName string, lockName string) error {
 	ctx := context.Background()

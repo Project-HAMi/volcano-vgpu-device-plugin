@@ -595,6 +595,8 @@ func LoadNvidiaConfig(c *cli.Context) *config.NvidiaConfig {
 	ResourceCores = nvidiaConfig.ResourceCoreName
 	ResourceMemPercentage = nvidiaConfig.ResourceMemoryPercentageName
 
+	config.SchedulerConfig = nvidiaConfig
+
 	return &nvidiaConfig
 }
 

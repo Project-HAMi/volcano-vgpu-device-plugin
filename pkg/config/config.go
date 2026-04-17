@@ -84,6 +84,7 @@ var (
 	// via the DeviceSpec field in ContainerAllocateResponse, enabling GPU access without
 	// nvidia-container-runtime (compatible with standard OCI runtimes like containerd/docker)
 	PassDeviceSpecs bool
+	SchedulerConfig NvidiaConfig
 )
 
 type MigTemplate struct {
