@@ -576,10 +576,11 @@ func LoadNvidiaConfig(c *cli.Context) *config.NvidiaConfig {
 	nvidiaConfig := config.NvidiaConfig{}
 	if configs != nil {
 		nvidiaConfig = configs.NvidiaConfig
+	} else {
+		nvidiaConfig.DeviceSplitCount = config.DeviceSplitCount
+		nvidiaConfig.DeviceCoreScaling = config.DeviceCoresScaling
+		nvidiaConfig.GPUMemoryFactor = config.GPUMemoryFactor
 	}
-	nvidiaConfig.DeviceSplitCount = config.DeviceSplitCount
-	nvidiaConfig.DeviceCoreScaling = config.DeviceCoresScaling
-	nvidiaConfig.GPUMemoryFactor = config.GPUMemoryFactor
 	if err := readFromConfigFile(&nvidiaConfig); err != nil {
 		klog.InfoS("readFrom device cm error", err.Error())
 	}
