@@ -19,8 +19,8 @@ package main
 import (
 	"time"
 
+	"volcano.sh/k8s-device-plugin/pkg/config"
 	"volcano.sh/k8s-device-plugin/pkg/monitor/nvidia"
-	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/config"
 
 	"k8s.io/klog/v2"
 )

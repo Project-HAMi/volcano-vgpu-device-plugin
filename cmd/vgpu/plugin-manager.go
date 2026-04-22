@@ -1,0 +1,83 @@
+/*
+ * Copyright (c) 2020, NVIDIA CORPORATION.  All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package main
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/NVIDIA/go-nvlib/pkg/nvlib/device"
+	"github.com/NVIDIA/go-nvlib/pkg/nvlib/info"
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
+
+	spec "volcano.sh/k8s-device-plugin/api/config/v1"
+	"volcano.sh/k8s-device-plugin/pkg/cdi"
+	"volcano.sh/k8s-device-plugin/pkg/imex"
+	"volcano.sh/k8s-device-plugin/pkg/plugin"
+)
+
+// GetPlugins returns a set of plugins for the specified configuration.
+func GetPlugins(ctx context.Context, infolib info.Interface, nvmllib nvml.Interface, devicelib device.Interface, config *spec.Config, o *options) ([]plugin.Interface, error) {
+	// TODO: We could consider passing this as an argument since it should already be used to construct nvmllib.
+	driverRoot := root(*config.Flags.Plugin.ContainerDriverRoot)
+
+	deviceListStrategies, err := spec.NewDeviceListStrategies(*config.Flags.Plugin.DeviceListStrategy)
+	if err != nil {
+		return nil, fmt.Errorf("invalid device list strategy: %v", err)
+	}
+
+	imexChannels, err := imex.GetChannels(config, driverRoot.getDevRoot())
+	if err != nil {
+		return nil, fmt.Errorf("error querying IMEX channels: %w", err)
+	}
+
+	cdiHandler, err := cdi.New(infolib, nvmllib, devicelib,
+		cdi.WithDeviceListStrategies(deviceListStrategies),
+		cdi.WithDriverRoot(string(driverRoot)),
+		cdi.WithDevRoot(driverRoot.getDevRoot()),
+		cdi.WithTargetDriverRoot(*config.Flags.NvidiaDriverRoot),
+		cdi.WithTargetDevRoot(*config.Flags.NvidiaDevRoot),
+		cdi.WithNvidiaCTKPath(*config.Flags.Plugin.NvidiaCTKPath),
+		cdi.WithDeviceIDStrategy(*config.Flags.Plugin.DeviceIDStrategy),
+		cdi.WithVendor("k8s.device-plugin.nvidia.com"),
+		cdi.WithGdrcopyEnabled(*config.Flags.GDRCopyEnabled),
+		cdi.WithGdsEnabled(*config.Flags.GDSEnabled),
+		cdi.WithMofedEnabled(*config.Flags.MOFEDEnabled),
+		cdi.WithImexChannels(imexChannels),
+		cdi.WithFeatureFlags(o.cdiFeatureFlags.Value()...),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create cdi handler: %v", err)
+	}
+
+	plugins, err := plugin.New(ctx, infolib, nvmllib, devicelib,
+		plugin.WithCDIHandler(cdiHandler),
+		plugin.WithConfig(config),
+		plugin.WithDeviceListStrategies(deviceListStrategies),
+		plugin.WithFailOnInitError(*config.Flags.FailOnInitError),
+		plugin.WithImexChannels(imexChannels),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create plugins: %w", err)
+	}
+
+	if err := cdiHandler.CreateSpecFile(); err != nil {
+		return nil, fmt.Errorf("unable to create cdi spec file: %v", err)
+	}
+
+	return plugins, nil
+}

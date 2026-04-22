@@ -115,9 +115,9 @@ data:
     {
         "nodeconfig": [
             {
-                "name": "aio-node67",
+                "name": "ucloud-wlcb-gpu-073",
                 "operatingmode": "hami-core",
-                "devicememoryscaling": 1.8,
+                "devicememoryscaling": 1,
                 "devicesplitcount": 10,
                 "migstrategy":"none",
                 "filterdevices": {
@@ -185,6 +185,7 @@ spec:
       labels:
         name: volcano-device-plugin
     spec:
+      runtimeClassName: nvidia
       tolerations:
       # This toleration is deprecated. Kept here for backward compatibility
       # See https://kubernetes.io/docs/tasks/administer-cluster/guaranteed-scheduling-critical-addon-pods/
@@ -200,8 +201,10 @@ spec:
       priorityClassName: "system-node-critical"
       serviceAccount: volcano-device-plugin
       containers:
-      - image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.12.0
-        args: ["--device-split-count=10"]
+      - image: harbor-contest.4pd.io/denglong/volcano-vgpu-device-plugin:v1.12.0
+        imagePullPolicy: Always
+        args: 
+          - --device-split-count=10
         lifecycle:
           postStart:
             exec:
@@ -220,6 +223,20 @@ spec:
           value: "all"
         - name: NVIDIA_DRIVER_CAPABILITIES
           value: "utility"
+        - name: DEVICE_LIST_STRATEGY
+          value: "envvar"
+          #value: "cdi-annotations"
+        - name: NVIDIA_DRIVER_ROOT
+          value: /
+        - name: NVIDIA_CDI_HOOK_PATH
+          value: /usr/bin/nvidia-ctk
+        - name: GDRCOPY_ENABLED
+          value: "false"
+        - name: GDS_ENABLED
+          value: "false"
+        - name: MOFED_ENABLED
+          value: "false"
+
         securityContext:
           allowPrivilegeEscalation: true
           privileged: true
@@ -235,7 +252,10 @@ spec:
           mountPath: /usr/local/vgpu
         - name: hosttmp
           mountPath: /tmp
-      - image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.11.0
+        - name: driver-root
+          mountPath: /driver-root
+          readOnly: true
+      - image: harbor-contest.4pd.io/denglong/volcano-vgpu-device-plugin:v1.11.0
         name: monitor
         command:
         - /bin/bash
@@ -304,4 +324,8 @@ spec:
       - name: hostvar
         hostPath:
           path: /var
+          type: Directory
+      - name: driver-root
+        hostPath:
+          path: /
           type: Directory

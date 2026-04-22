@@ -24,8 +24,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"volcano.sh/k8s-device-plugin/pkg/config"
 	"volcano.sh/k8s-device-plugin/pkg/monitor/nvidia"
-	"volcano.sh/k8s-device-plugin/pkg/plugin/vgpu/config"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/prometheus/client_golang/prometheus"
