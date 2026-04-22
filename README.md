@@ -135,9 +135,14 @@ You can set the sharing mode and customize your installation by adjusting the [c
 
 Once you have enabled this option on *all* the GPU nodes you wish to use,
 you can then enable GPU support in your cluster by deploying the following Daemonset:
+#### Normal Mode
 
 ```
-$ kubectl create -f volcano-vgpu-device-plugin.yml
+$ kubectl apply -f volcano-vgpu-device-plugin.yml
+```
+#### CDI Mode
+```
+$ kubectl apply -f volcano-vgpu-device-plugin-cdi.yml
 ```
 
 ### Verify environment is ready
