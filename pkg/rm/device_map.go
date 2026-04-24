@@ -26,6 +26,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 
 	spec "volcano.sh/k8s-device-plugin/api/config/v1"
+	config "volcano.sh/k8s-device-plugin/pkg/config"
 )
 
 type deviceMapBuilder struct {
@@ -110,6 +111,16 @@ func (b *deviceMapBuilder) buildGPUDeviceMap() (DeviceMap, error) {
 	devices := make(DeviceMap)
 
 	err := b.VisitDevices(func(i int, gpu device.Device) error {
+		// Get UUID for filtering
+		uuid, ret := gpu.GetUUID()
+		if ret != nvml.SUCCESS {
+			return fmt.Errorf("error getting UUID for GPU at index %d: %v", i, ret)
+		}
+		// Check if device should be filtered based on filterdevice configuration
+		if config.FilterDeviceToRegister(uuid, i) {
+			klog.V(3).Infoln("Filtering device in buildGPUDeviceMap based on filterdevice config: index=%d, uuid=%s", i, uuid)
+			return nil
+		}
 		name, ret := gpu.GetName()
 		if ret != nvml.SUCCESS {
 			return fmt.Errorf("error getting product name for GPU: %v", ret)
