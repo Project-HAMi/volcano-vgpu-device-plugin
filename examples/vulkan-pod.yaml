@@ -24,5 +24,11 @@ spec:
     resources:
       limits:
         nvidia.com/gpu: 1
-        nvidia.com/gpumem: 4000  # MiB
+        # nvidia.com/gpumem unit depends on the device-plugin ConfigMap's
+        # gpuMemoryFactor (default 1). With factor=1, "4000" == 4000 MiB.
+        # With factor=1024 (recommended for 40+ GiB cards to stay under
+        # kubelet's 4 MiB gRPC ListAndWatch window), the same 4 GiB
+        # partition is requested as "4". See README troubleshooting
+        # section for details.
+        nvidia.com/gpumem: 4000  # MiB at gpuMemoryFactor=1
         nvidia.com/gpucores: 50  # %

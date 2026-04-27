@@ -101,3 +101,17 @@ annotation `hami.io/vulkan: "true"` 가 없으면 webhook 은 no-op. 즉:
 | Vulkan app 이 메모리 한계 무시 | webhook annotation 처리 안 됨 | `kubectl get pod ... -o yaml` 로 env 에 HAMI_VULKAN_ENABLE 있는지 확인 |
 | `manifest 파일 not found` | host 에 hami.json 미배치 | DaemonSet pod log 또는 `ls /usr/local/vgpu/vulkan/implicit_layer.d/` 확인 |
 | `vk_icdNegotiateLoaderICDInterfaceVersion -3` | NVIDIA Vulkan ICD 의존성 부족 | container image 에 libGLX_nvidia, libEGL, X11 라이브러리 포함 |
+| 노드 `volcano.sh/vgpu-memory: 0`, scheduler `queue resource quota insufficient` | 큰 GPU (40+ GiB) 환경에서 vgpu-memory device 수가 kubelet gRPC 4 MiB 한계 초과 | ConfigMap 의 `gpuMemoryFactor` 키우기 (예: 1024). 자세한 내용은 README 의 Troubleshooting 섹션 참고 |
+
+## `gpuMemoryFactor` 사용 시 vgpu-memory 단위 변경
+
+운영자가 ConfigMap 의 `gpuMemoryFactor` 를 1 보다 키우면 pod 의 `volcano.sh/vgpu-memory` limit 단위가 _chunks_ 로 변경된다. Vulkan 분할 enforcement 자체는 영향 없으나 (`CUDA_DEVICE_MEMORY_LIMIT_<i>` env 가 device-plugin 의 Allocate 에서 자동으로 `chunks * factor` MiB 로 박힘), 사용자가 yaml 작성 시 단위를 의식해야 한다.
+
+| `gpuMemoryFactor` | yaml 의 `vgpu-memory: 4000` 의미 | yaml 의 `vgpu-memory: 4` 의미 |
+|---|---|---|
+| 1 (default) | 4000 MiB | 4 MiB |
+| 1024 | 4000 chunks × 1024 MiB ≈ 4 TiB (대부분 unschedulable) | 4 GiB |
+
+요컨대 `gpuMemoryFactor=1024` 환경에서 4 GiB partition 을 원하면 `vgpu-memory: 4` 로 박는다.
+
+Volcano Queue 의 `capability.volcano.sh/vgpu-memory` 도 같은 단위로 맞춰야 한다.
