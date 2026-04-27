@@ -205,7 +205,7 @@ spec:
         lifecycle:
           postStart:
             exec:
-              command: ["/bin/sh", "-c", "cp -f /k8s-vgpu/lib/nvidia/* /usr/local/vgpu/"]
+              command: ["/bin/sh", "-c", "cp -rf /k8s-vgpu/lib/nvidia/. /usr/local/vgpu/"]
         name: volcano-device-plugin
         env:
         - name: NODE_NAME
