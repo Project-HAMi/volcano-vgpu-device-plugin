@@ -201,7 +201,7 @@ spec:
       priorityClassName: "system-node-critical"
       serviceAccount: volcano-device-plugin
       containers:
-      - image: harbor-contest.4pd.io/denglong/volcano-vgpu-device-plugin:v1.12.0
+      - image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.12.0
         imagePullPolicy: Always
         args: 
           - --device-split-count=10
@@ -252,10 +252,12 @@ spec:
           mountPath: /usr/local/vgpu
         - name: hosttmp
           mountPath: /tmp
+        - name: cdi-root
+          mountPath: /var/run/cdi
         - name: driver-root
           mountPath: /driver-root
           readOnly: true
-      - image: harbor-contest.4pd.io/denglong/volcano-vgpu-device-plugin:v1.11.0
+      - image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.12.0
         name: monitor
         command:
         - /bin/bash
@@ -329,3 +331,7 @@ spec:
         hostPath:
           path: /
           type: Directory
+      - name: cdi-root
+          hostPath:
+            path: /var/run/cdi
+            type: DirectoryOrCreate
