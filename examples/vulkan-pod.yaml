@@ -1,0 +1,34 @@
+# HAMi Vulkan vGPU 분할 활성화 예시 pod (Volcano scheduler).
+#
+# 동작 흐름:
+#   1. annotation `hami.io/vulkan: "true"` → HAMi mutating webhook 이
+#      HAMI_VULKAN_ENABLE=1 env + NVIDIA_DRIVER_CAPABILITIES 의 graphics 캡 주입
+#   2. device-plugin Allocate 가 host 의 hami.json 을 container 에 자동 mount
+#   3. libvgpu (HAMi-core) 의 vkAllocateMemory 후킹이 nvidia.com/gpumem 한계 enforce
+#
+# 설치 전제:
+#   - volcano-vgpu-device-plugin 의 vulkan-v1 image 가 deploy 됨
+#   - HAMi mutating webhook 이 별도 helm install 됨 (doc/vulkan-vgpu.md 참고)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: vulkan-vgpu-demo
+  annotations:
+    hami.io/vulkan: "true"
+spec:
+  schedulerName: volcano
+  containers:
+  - name: vulkan-app
+    image: nvidia/cuda:12.2.0-runtime-ubuntu22.04
+    command: ["sleep", "infinity"]
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+        # nvidia.com/gpumem unit depends on the device-plugin ConfigMap's
+        # gpuMemoryFactor (default 1). With factor=1, "4000" == 4000 MiB.
+        # With factor=1024 (recommended for 40+ GiB cards to stay under
+        # kubelet's 4 MiB gRPC ListAndWatch window), the same 4 GiB
+        # partition is requested as "4". See README troubleshooting
+        # section for details.
+        nvidia.com/gpumem: 4000  # MiB at gpuMemoryFactor=1
+        nvidia.com/gpucores: 50  # %

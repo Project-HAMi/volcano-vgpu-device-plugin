@@ -31,7 +31,7 @@ RUN go install github.com/NVIDIA/mig-parted/cmd/nvidia-mig-parted@latest
 FROM nvidia/cuda:12.2.0-devel-ubuntu20.04 AS nvidia_builder
 ARG TARGETARCH
 RUN apt-get update
-RUN apt-get -y install wget openssl libssl-dev
+RUN apt-get -y install wget openssl libssl-dev libvulkan-dev
 RUN case "${TARGETARCH}" in \
         "amd64") wget https://cmake.org/files/v3.19/cmake-3.19.8-Linux-x86_64.tar.gz ;; \
         "arm64") wget https://cmake.org/files/v3.19/cmake-3.19.8-Linux-aarch64.tar.gz ;; \
@@ -55,5 +55,6 @@ COPY --from=builder /go/src/volcano.sh/devices/volcano-vgpu-monitor /usr/bin/vol
 COPY --from=builder /go/bin/nvidia-mig-parted /usr/bin/nvidia-mig-parted
 COPY --from=builder /go/src/volcano.sh/devices/lib/nvidia/ld.so.preload /k8s-vgpu/lib/nvidia/
 COPY --from=nvidia_builder /libvgpu/build/libvgpu.so /k8s-vgpu/lib/nvidia/
+COPY --from=nvidia_builder /libvgpu/etc/vulkan/implicit_layer.d/hami.json /k8s-vgpu/lib/nvidia/vulkan/implicit_layer.d/hami.json
 
 ENTRYPOINT ["volcano-vgpu-device-plugin"]

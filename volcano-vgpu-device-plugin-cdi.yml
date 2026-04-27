@@ -33,6 +33,15 @@ data:
       deviceSplitCount: 10
       deviceMemoryScaling: 1
       deviceCoreScaling: 1
+      # gpuMemoryFactor: bytes-per-MiB unit at which the plugin advertises
+      # vgpu-memory to kubelet. Default 1 == 1 MiB per device. On nodes
+      # with large GPUs (e.g. 40+ GiB), the resulting device count can
+      # exceed kubelet's 4 MiB ListAndWatch gRPC window, causing
+      # node Allocatable for volcano.sh/vgpu-memory to be reported as 0.
+      # Increase to a larger chunk (e.g. 1024 -> 1 device == 1 GiB) to
+      # stay under the gRPC window. NOTE: pod yaml volcano.sh/vgpu-memory
+      # then represents the count of these chunks (e.g. 4 == 4 GiB at
+      # gpuMemoryFactor=1024). See README troubleshooting section.
       gpuMemoryFactor: 1
       knownMigGeometries:
       - models: [ "A30" ]
@@ -208,7 +217,7 @@ spec:
         lifecycle:
           postStart:
             exec:
-              command: ["/bin/sh", "-c", "cp -f /k8s-vgpu/lib/nvidia/* /usr/local/vgpu/"]
+              command: ["/bin/sh", "-c", "cp -rf /k8s-vgpu/lib/nvidia/. /usr/local/vgpu/"]
         name: volcano-device-plugin
         env:
         - name: NODE_NAME

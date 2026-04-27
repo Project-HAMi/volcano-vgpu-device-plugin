@@ -234,6 +234,73 @@ vGPU_device_memory_limit_in_bytes{ctrname="cuda-container",deviceuuid="GPU-xxxx"
 vGPU_device_memory_usage_in_bytes{ctrname="cuda-container",deviceuuid="GPU-xxxx",podname="hami-device",podnamespace="default",vdeviceid="0",zone="vGPU"} 2.109867008e+09
 ```
 
+# Troubleshooting
+
+## Node `volcano.sh/vgpu-memory` is `0` in `kubectl describe node`
+
+The device-plugin advertises Memory at the granularity of one device per
+MiB (controlled by `gpuMemoryFactor`, default `1`). On nodes with large
+GPUs (e.g. 46 GiB cards × 2 = ~92 K devices), the kubelet ↔ device-plugin
+`ListAndWatch` gRPC message can exceed the kubelet's default 4 MiB
+receive limit. The kubelet then drops the advertise and the node's
+`Allocatable` for `volcano.sh/vgpu-memory` is reported as `0`, while the
+other resources (`vgpu-number`, `vgpu-cores`) are correct.
+
+Symptoms:
+
+```text
+$ kubectl get node <gpu-node> -o jsonpath='{.status.allocatable}'
+"volcano.sh/vgpu-cores":  "200"
+"volcano.sh/vgpu-memory": "0"        # <- broken
+"volcano.sh/vgpu-number": "20"
+```
+
+```text
+# from the Volcano scheduler
+queue resource quota insufficient: insufficient volcano.sh/vgpu-memory
+```
+
+### Fix: increase `gpuMemoryFactor`
+
+Edit the device-plugin ConfigMap (`volcano-vgpu-device-config`) and
+raise `gpuMemoryFactor` so each advertised device represents a larger
+chunk of memory. For a 46 GiB card, `gpuMemoryFactor: 1024` reduces the
+advertised count to ~45 devices/card (well within the 4 MiB gRPC
+window).
+
+```yaml
+data:
+  device-config.yaml: |-
+    nvidia:
+      ...
+      gpuMemoryFactor: 1024   # 1 device == 1024 MiB
+```
+
+After the ConfigMap change, restart the device-plugin DaemonSet so the
+new factor takes effect:
+
+```bash
+kubectl rollout restart -n kube-system ds/volcano-device-plugin
+```
+
+> **Important — pod yaml unit changes when `gpuMemoryFactor` is not 1.**
+>
+> The `volcano.sh/vgpu-memory` resource limit is interpreted as an
+> integer count of advertised devices, so its meaning is
+> `vgpu-memory × gpuMemoryFactor` MiB. With the default `gpuMemoryFactor: 1`,
+> `vgpu-memory: 4000` requests 4000 MiB. With `gpuMemoryFactor: 1024`,
+> the same 4000 MiB partition is requested as `vgpu-memory: 4`
+> (4 × 1024 MiB).
+>
+> The Volcano queue's `capability.volcano.sh/vgpu-memory` (if set) must
+> use the same unit. Update both the deployment limits and the queue
+> capability when changing `gpuMemoryFactor`.
+>
+> The hard memory enforcement (CUDA + Vulkan via HAMi-core) is
+> unaffected: the device-plugin's `Allocate` always emits
+> `CUDA_DEVICE_MEMORY_LIMIT_<i>` in MiB by multiplying the requested
+> count by `gpuMemoryFactor`.
+
 # Issues and Contributing
 [Checkout the Contributing document!](CONTRIBUTING.md)
 
