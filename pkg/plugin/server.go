@@ -459,6 +459,12 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 						ReadOnly: true},
 					)
 				}
+				// Mount Vulkan implicit layer manifest so the HAMi Vulkan layer
+				// activates for pods that set HAMI_VULKAN_ENABLE=1 (done by the
+				// HAMi mutating webhook when the pod carries hami.io/vulkan="true").
+				// Skipped if the host file is absent to avoid blocking pod startup
+				// on nodes where the postStart copy has not yet completed.
+				response.Mounts = append(response.Mounts, buildVulkanManifestMount(hostHookPath)...)
 			}
 			responses.ContainerResponses = append(responses.ContainerResponses, response)
 		}
