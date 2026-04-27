@@ -332,6 +332,6 @@ spec:
           path: /
           type: Directory
       - name: cdi-root
-          hostPath:
-            path: /var/run/cdi
-            type: DirectoryOrCreate
+        hostPath:
+          path: /var/run/cdi
+          type: DirectoryOrCreate
