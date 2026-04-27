@@ -577,9 +577,23 @@ func LoadNvidiaConfig(c *cli.Context) *config.NvidiaConfig {
 	if configs != nil {
 		nvidiaConfig = configs.NvidiaConfig
 	}
-	nvidiaConfig.DeviceSplitCount = config.DeviceSplitCount
-	nvidiaConfig.DeviceCoreScaling = config.DeviceCoresScaling
-	nvidiaConfig.GPUMemoryFactor = config.GPUMemoryFactor
+	// Only let CLI flags override the values loaded from the ConfigMap when the
+	// user has explicitly set them. Without this guard the per-flag default
+	// (e.g. --gpu-memory-factor=1) silently overwrites whatever the operator
+	// configured in the ConfigMap, which makes the ConfigMap field useless and
+	// is confusing to debug — see e.g.
+	// https://github.com/Project-HAMi/volcano-vgpu-device-plugin/issues for
+	// the symptom (`Allocatable: volcano.sh/vgpu-memory: 0` on large GPUs
+	// because the ConfigMap-supplied factor is silently ignored).
+	if c.IsSet("device-split-count") {
+		nvidiaConfig.DeviceSplitCount = config.DeviceSplitCount
+	}
+	if c.IsSet("device-cores-scaling") {
+		nvidiaConfig.DeviceCoreScaling = config.DeviceCoresScaling
+	}
+	if c.IsSet("gpu-memory-factor") {
+		nvidiaConfig.GPUMemoryFactor = config.GPUMemoryFactor
+	}
 	if err := readFromConfigFile(&nvidiaConfig); err != nil {
 		klog.InfoS("readFrom device cm error", err.Error())
 	}
