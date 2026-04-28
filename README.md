@@ -54,8 +54,10 @@ This is because the new `--gpus` options hasn't reached kubernetes yet. Example:
 ```bash
 # Add the package repositories
 $ distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-$ curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
-$ curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+$ curl -fsSL https://nvidia.github.io/nvidia-docker/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-docker-keyring.gpg
+$ curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | \
+    sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-docker-keyring.gpg] https://#g' | \
+    sudo tee /etc/apt/sources.list.d/nvidia-docker.list
 
 $ sudo apt-get update && sudo apt-get install -y nvidia-docker2
 $ sudo systemctl restart docker
