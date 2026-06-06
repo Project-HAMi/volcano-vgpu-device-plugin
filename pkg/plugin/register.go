@@ -43,7 +43,17 @@ func RegisterInAnnotation(devs []*pluginapi.Device) error {
 		return err
 	}
 	encodeddevices := util.EncodeNodeDevices(*devices)
-	annos[util.NodeHandshake] = "Reported " + time.Now().String()
+	currentAnnotations := node.GetAnnotations()
+	if currentAnnotations == nil {
+		currentAnnotations = make(map[string]string)
+	}
+
+	existingEncodedDevices, exists := currentAnnotations[util.NodeNvidiaDeviceRegistered]
+	if exists && existingEncodedDevices == encodeddevices {
+		klog.V(3).Infoln("Device information unchanged, skipping annotation update")
+		return nil
+	}
+
 	annos[util.NodeNvidiaDeviceRegistered] = encodeddevices
 	klog.Infoln("Reporting devices", encodeddevices, "in", time.Now().String())
 	err = util.PatchNodeAnnotations(node, annos)

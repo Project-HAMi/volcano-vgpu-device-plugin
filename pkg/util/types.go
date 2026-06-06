@@ -50,7 +50,6 @@ const (
 	NodeLockTime = "volcano.sh/mutex.lock"
 	MaxLockRetry = 5
 
-	NodeHandshake              = "volcano.sh/node-vgpu-handshake"
 	NodeNvidiaDeviceRegistered = "volcano.sh/node-vgpu-register"
 
 	// DeviceName used to indicate this device
@@ -71,10 +70,6 @@ var (
 
 	MLUResourceCount  string
 	MLUResourceMemory string
-
-	KnownDevice = map[string]string{
-		NodeHandshake: NodeNvidiaDeviceRegistered,
-	}
 )
 
 type ContainerDevice struct {
