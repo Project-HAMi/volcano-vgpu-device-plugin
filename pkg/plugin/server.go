@@ -453,6 +453,11 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 						break
 					}
 				}
+
+				if !found && os.Getenv("CUDA_DISABLE_CONTROL_DP") != "" {
+					found = true
+				}
+
 				if !found {
 					response.Mounts = append(response.Mounts, &pluginapi.Mount{ContainerPath: "/etc/ld.so.preload",
 						HostPath: hostHookPath + "/ld.so.preload",
