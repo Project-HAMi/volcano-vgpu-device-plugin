@@ -45,6 +45,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v2"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
@@ -349,18 +350,22 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 		return &responses, nil
 	}
 	nodeName := os.Getenv("NODE_NAME")
-	gpuAmount := len(reqs.ContainerRequests[0].DevicesIds)
-	current, err := util.GetPendingPod(nodeName, gpuAmount)
-	if err != nil {
-		nodelock.ReleaseNodeLock(nodeName, util.VGPUDeviceName)
-		return &pluginapi.AllocateResponse{}, err
+	var current *corev1.Pod
+	if strings.Contains(reqs.ContainerRequests[0].DevicesIds[0], "MIG") {
+		gpuAmount := len(reqs.ContainerRequests[0].DevicesIds)
+		var err error
+		current, err = util.GetPendingPod(nodeName, gpuAmount)
+		if err != nil {
+			nodelock.ReleaseNodeLock(nodeName, util.VGPUDeviceName)
+			return &pluginapi.AllocateResponse{}, err
+		}
+		if current == nil {
+			klog.Errorf("no pending pod found on node %s", nodeName)
+			nodelock.ReleaseNodeLock(nodeName, util.VGPUDeviceName)
+			return &pluginapi.AllocateResponse{}, errors.New("no pending pod found on node")
+		}
+		klog.V(3).InfoS("Current pending pod.", "UID", current.UID, "pod name", current.Name)
 	}
-	if current == nil {
-		klog.Errorf("no pending pod found on node %s", nodeName)
-		nodelock.ReleaseNodeLock(nodeName, util.VGPUDeviceName)
-		return &pluginapi.AllocateResponse{}, errors.New("no pending pod found on node")
-	}
-	klog.V(3).InfoS("Current pending pod.", "UID", current.UID, "pod name", current.Name)
 
 	for idx, req := range reqs.ContainerRequests {
 		if strings.Contains(req.DevicesIds[0], "MIG") {
@@ -386,14 +391,20 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 			responses.ContainerResponses = append(responses.ContainerResponses, response)
 		} else {
 
-			currentCtr, devreq, err := util.GetNextDeviceRequest(util.NvidiaGPUDevice, *current)
-			klog.V(4).InfoS("Selected Pod deviceAllocateFromAnnotation=", "request", devreq)
-			//klog.V(4).InfoS("reqs device ids=", "deviceIDs", reqs.ContainerRequests[idx].DevicesIDs)
+			var (
+				currentCtr corev1.Container
+				devreq     util.ContainerDevices
+				err        error
+			)
+			current, currentCtr, devreq, err = util.GetMatchingPendingDeviceRequest(util.NvidiaGPUDevice, nodeName, req.DevicesIds)
 			if err != nil {
-				klog.Errorln("get device from annotation failed", err.Error())
-				util.PodAllocationFailed(nodeName, current)
+				klog.Errorln("get matching device request failed", err.Error())
+				nodelock.ReleaseNodeLock(nodeName, util.VGPUDeviceName)
 				return &pluginapi.AllocateResponse{}, err
 			}
+			klog.V(3).InfoS("Current pending pod.", "UID", current.UID, "pod name", current.Name)
+			klog.V(4).InfoS("Selected Pod deviceAllocateFromAnnotation=", "request", devreq)
+			//klog.V(4).InfoS("reqs device ids=", "deviceIDs", reqs.ContainerRequests[idx].DevicesIDs)
 			if len(devreq) != len(reqs.ContainerRequests[idx].DevicesIds) {
 				klog.Errorln("device number not matched", devreq, reqs.ContainerRequests[idx].DevicesIds)
 				util.PodAllocationFailed(nodeName, current)
