@@ -99,6 +99,7 @@ type DeviceInfo struct {
 	Health               bool              `protobuf:"varint,5,opt,name=health,proto3" json:"health,omitempty"`
 	Mode                 string            `json:"mode,omitempty"`
 	MIGTemplate          []config.Geometry `json:"migtemplate,omitempty"`
+	Minor                int32             `json:"minor,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
 	XXX_unrecognized     []byte            `json:"-"`
 	XXX_sizecache        int32             `json:"-"`

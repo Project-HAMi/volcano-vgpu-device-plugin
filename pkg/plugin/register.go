@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -89,6 +90,13 @@ func ConvertDeviceInfo(devs []*pluginapi.Device) *[]*util.DeviceInfo {
 
 		registeredmem := int32(memory.Total/(1024*1024)) / int32(config.GPUMemoryFactor)
 		klog.V(3).Infoln("GPUMemoryFactor=", config.GPUMemoryFactor, "registeredmem=", registeredmem)
+
+		minor, ret := ndev.GetMinorNumber()
+		if ret != nvml.SUCCESS {
+			klog.Warningf("failed to get minor number for device id=%s, setting to -1", dev.ID)
+			minor = -1
+		}
+
 		res = append(res, &util.DeviceInfo{
 			Id:     dev.ID,
 			Count:  int32(config.DeviceSplitCount),
@@ -96,7 +104,13 @@ func ConvertDeviceInfo(devs []*pluginapi.Device) *[]*util.DeviceInfo {
 			Mode:   config.Mode,
 			Type:   fmt.Sprintf("%v-%v", "NVIDIA", model),
 			Health: strings.EqualFold(dev.Health, "healthy"),
+			Minor:  int32(minor),
 		})
 	}
+
+	sort.Slice(res, func(i, j int) bool {
+		return res[i].Minor < res[j].Minor
+	})
+
 	return &res
 }
