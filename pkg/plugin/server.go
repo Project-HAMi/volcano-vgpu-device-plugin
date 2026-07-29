@@ -53,7 +53,26 @@ const (
 	deviceListEnvVar                          = "NVIDIA_VISIBLE_DEVICES"
 	deviceListAsVolumeMountsHostPath          = "/dev/null"
 	deviceListAsVolumeMountsContainerPathRoot = "/var/run/nvidia-container-devices"
+
+	// deviceEntryLimit is how many devices fit in one ListAndWatch response.
+	// Kubelet dials the plugin without overriding grpc's
+	// defaultClientMaxReceiveMessageSize, so 4MB applies. A memory device entry
+	// costs about 66 bytes, which leaves room for ~63500, rounded down here to
+	// keep a margin if the ID format grows.
+	deviceEntryLimit = 60000
 )
+
+// checkDeviceEntries reports a device list too large for kubelet to receive.
+// Kubelet drops such a response, so the resource stays at 0 or keeps the value
+// from the last accepted one.
+func checkDeviceEntries(count int, factor uint) error {
+	if count <= deviceEntryLimit {
+		return nil
+	}
+	needed := (factor*uint(count) + deviceEntryLimit - 1) / deviceEntryLimit
+	return fmt.Errorf("%d memory devices exceed the %d kubelet can receive, set gpuMemoryFactor to at least %d",
+		count, deviceEntryLimit, needed)
+}
 
 // nvidiaDevicePlugin implements the Kubernetes device plugin API
 type nvidiaDevicePlugin struct {
@@ -76,6 +95,11 @@ type nvidiaDevicePlugin struct {
 	mps mpsOptions
 
 	migCurrent config.MigPartedSpec
+
+	// entryLimitWarned keeps the device count warning to one line per plugin,
+	// since apiDevices runs again on every health event. Only ListAndWatch
+	// reaches it, so no synchronisation is needed.
+	entryLimitWarned bool
 }
 
 // devicePluginForResource creates a device plugin for the specified resource.
@@ -655,6 +679,12 @@ func (plugin *nvidiaDevicePlugin) apiDevices() []*pluginapi.Device {
 			}
 		}
 		klog.Infoln("res length=", len(res))
+		if !plugin.entryLimitWarned {
+			plugin.entryLimitWarned = true
+			if err := checkDeviceEntries(len(res), config.GPUMemoryFactor); err != nil {
+				klog.Warning(err)
+			}
+		}
 		return res
 	} else if plugin.rm.Resource() == spec.ResourceName(util.ResourceCores) {
 		for _, dev := range devs {

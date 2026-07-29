@@ -15,6 +15,8 @@ For example:
  - args: ["--gpu-strategy=number"] will let device plugin using the gpu-number strategy
  - args: ["--gpu-strategy=share","--gpu-memory-factor=10"] will let device plugin using the gpu-share strategy, and memory factor is 10MB
 
+Every memory unit is registered as a separate device, so keep the node total, `sum of GPU memory in MB / gpu-memory-factor`, at most 60000. Kubelet drops a larger list and the resource stays at 0. A single 80GB card needs a factor of 2, a node with eight of them needs 11.
+
 ### As a configuration file
 ```
 version: v1
