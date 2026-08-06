@@ -251,6 +251,16 @@ func TestCDIAllocateResponse(t *testing.T) {
 	}
 }
 
+func TestCheckDeviceEntries(t *testing.T) {
+	require.NoError(t, checkDeviceEntries(deviceEntryLimit, 1))
+	// two 80GB cards at factor 1
+	require.ErrorContains(t, checkDeviceEntries(163840, 1), "at least 3")
+	// same node at factor 4
+	require.NoError(t, checkDeviceEntries(40960, 4))
+	// an exact multiple of the limit needs that factor, not one more
+	require.ErrorContains(t, checkDeviceEntries(2*deviceEntryLimit, 1), "at least 2")
+}
+
 func ptr[T any](x T) *T {
 	return &x
 }
