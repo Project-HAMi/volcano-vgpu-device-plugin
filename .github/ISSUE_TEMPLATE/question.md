@@ -8,6 +8,8 @@ labels: question
 
 **What have you already tried or investigated?**:
 
+Before posting, include only relevant, time-bounded excerpts and remove or mask credentials, tokens, GPU identifiers, and node or host identifiers.
+
 **Environment**:
 
 - volcano-vgpu-device-plugin version:

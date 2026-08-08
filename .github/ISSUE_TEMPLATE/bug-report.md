@@ -15,16 +15,16 @@ labels: bug
 
 **Anything else we need to know?**:
 
-- The output of `nvidia-smi -a` on your host
+- Relevant excerpts from `nvidia-smi -a`; mask GPU UUIDs, serial numbers, and host or node identifiers
 - Relevant Docker or containerd configuration sections. Omit credentials, tokens, passwords, private keys, certificates, and unrelated host data.
-- The volcano-vgpu-device-plugin container logs
-- The volcano-vgpu-monitor container logs, if applicable
-- The volcano-scheduler container logs
-- The kubelet logs on the node (e.g: `sudo journalctl -r -u kubelet`)
+- Relevant, time-bounded excerpts from the volcano-vgpu-device-plugin container logs
+- Relevant, time-bounded excerpts from the volcano-vgpu-monitor container logs, if applicable
+- Relevant, time-bounded excerpts from the volcano-scheduler container logs
+- Relevant, time-bounded excerpts from the kubelet logs on the node (e.g: `sudo journalctl -r -u kubelet`)
 - The relevant Helm values or deployment manifests
-- Any relevant kernel output lines from `dmesg`
+- Relevant, time-bounded kernel output lines from `dmesg`
 
-Before posting, remove or mask credentials, tokens, and other sensitive data from configuration and logs.
+Before posting, remove or mask credentials, tokens, GPU identifiers, node or host identifiers, and other sensitive data from configuration and logs.
 
 **Environment**:
 - volcano-vgpu-device-plugin version:
