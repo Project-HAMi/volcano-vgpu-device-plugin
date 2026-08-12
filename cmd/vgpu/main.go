@@ -266,10 +266,16 @@ func loadConfig(c *cli.Context, flags []cli.Flag) (*spec.Config, error) {
 func start(c *cli.Context, o *options) error {
 	klog.InfoS(fmt.Sprintf("Starting %s", c.App.Name), "version", c.App.Version)
 
-	// Resolve the NVML library path from the driver root before the first NVML call.
-	// This ensures the global NVML singleton uses the correct library path when
-	// running with nvml-mock or a custom driver root.
-	driverRoot := root(c.String("driver-root-ctr-path"))
+	// Load config early to resolve ContainerDriverRoot from config file,
+	// CLI flags, and env vars. This ensures the global NVML singleton uses
+	// the same driver root as the per-plugin NVML instance in startPlugins().
+	cfg, err := loadConfig(c, o.flags)
+	if err != nil {
+		return fmt.Errorf("unable to load config: %v", err)
+	}
+	spec.DisableResourceNamingInConfig(cfg)
+
+	driverRoot := root(*cfg.Flags.Plugin.ContainerDriverRoot)
 	libraryPath := driverRoot.tryResolveLibrary("libnvidia-ml.so.1")
 	config.SetNvmlLibraryPath(libraryPath)
 
