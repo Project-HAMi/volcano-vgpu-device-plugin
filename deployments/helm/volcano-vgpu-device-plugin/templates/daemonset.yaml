@@ -70,6 +70,18 @@ spec:
         - name: MOFED_ENABLED
           value: "false"
         {{- end }}
+        {{- if .Values.nvmlMock.enabled }}
+        - name: NVIDIA_DRIVER_ROOT
+          value: {{ .Values.nvmlMock.driverRoot }}
+        - name: CONTAINER_DRIVER_ROOT
+          value: {{ .Values.nvmlMock.driverRoot }}
+        - name: NVIDIA_DEV_ROOT
+          value: {{ .Values.nvmlMock.driverRoot }}
+        - name: DEVICE_DISCOVERY_STRATEGY
+          value: "nvml"
+        - name: DP_DISABLE_HEALTHCHECKS
+          value: "all"
+        {{- end }}
         securityContext:
           allowPrivilegeEscalation: true
           privileged: true
@@ -95,7 +107,12 @@ spec:
           mountPath: /usrbin
           readOnly: true
         {{- end }}
-      {{- if .Values.monitor.enabled }}
+        {{- if .Values.nvmlMock.enabled }}
+        - name: mock-root
+          mountPath: {{ .Values.nvmlMock.driverRoot }}
+          readOnly: true
+        {{- end }}
+      {{- if and .Values.monitor.enabled (not .Values.nvmlMock.enabled) }}
       - name: monitor
         image: "{{ .Values.monitor.image.repository }}:{{ .Values.monitor.image.tag }}"
         command:
@@ -154,7 +171,7 @@ spec:
         hostPath:
           path: {{ .Values.hostPaths.tmp }}
           type: DirectoryOrCreate
-      {{- if .Values.monitor.enabled }}
+      {{- if and .Values.monitor.enabled (not .Values.nvmlMock.enabled) }}
       - name: dockers
         hostPath:
           path: {{ .Values.hostPaths.docker }}
@@ -184,5 +201,11 @@ spec:
       - name: usrbin
         hostPath:
           path: /usr/bin
+          type: Directory
+      {{- end }}
+      {{- if .Values.nvmlMock.enabled }}
+      - name: mock-root
+        hostPath:
+          path: {{ .Values.nvmlMock.driverRoot }}
           type: Directory
       {{- end }}

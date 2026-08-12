@@ -154,3 +154,14 @@ cdi:
   deviceListStrategy: "cdi-annotations"
   nvidiaHookPath: "/usr/bin/nvidia-ctk"
   nvidiaDriverRoot: "/"
+
+# nvml-mock configuration for testing without real GPUs
+# When enabled, the device-plugin will use the fake NVML library from nvml-mock
+# to simulate GPU devices. The monitor container is automatically disabled.
+# See: https://github.com/nvidia/k8s-test-infra
+nvmlMock:
+  enabled: false
+  # driverRoot is the host-side path where nvml-mock installs the fake driver
+  # (e.g., /var/lib/nvml-mock/driver). This path is mounted into the container
+  # and used as both NVIDIA_DRIVER_ROOT and CONTAINER_DRIVER_ROOT.
+  driverRoot: /var/lib/nvml-mock/driver
