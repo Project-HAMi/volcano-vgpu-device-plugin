@@ -179,12 +179,15 @@ spec:
         effect: NoSchedule
       priorityClassName: "system-node-critical"
       serviceAccountName: volcano-device-plugin
+      initContainers:
+      - name: copy-vgpu-lib
+        image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.12.0
+        command: ["/bin/sh", "-c", "cp -f /k8s-vgpu/lib/nvidia/* /usr/local/vgpu/"]
+        volumeMounts:
+        - name: lib
+          mountPath: /usr/local/vgpu
       containers:
       - image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.12.0
-        lifecycle:
-          postStart:
-            exec:
-              command: ["/bin/sh", "-c", "cp -f /k8s-vgpu/lib/nvidia/* /usr/local/vgpu/"]
         name: volcano-device-plugin
         env:
         - name: NODE_NAME
