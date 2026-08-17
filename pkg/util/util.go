@@ -69,6 +69,14 @@ func GetPendingPod(node string, gpuAmount int) (*v1.Pod, error) {
 	return oldestPod, nil
 }
 
+func GetMatchingPendingDeviceRequest(dtype, nodeName string, requestedDeviceIDs []string) (*v1.Pod, v1.Container, ContainerDevices, error) {
+	podList, err := client.GetClient().CoreV1().Pods("").List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		return nil, v1.Container{}, nil, err
+	}
+	return GetMatchingDeviceRequest(dtype, nodeName, requestedDeviceIDs, podList.Items)
+}
+
 //func printPodList(pods []v1.Pod, kubeletRequestAmount int) {
 //	for _, pod := range pods {
 //		_, length := DecodePodDevices(pod.Annotations[AssignedIDsToAllocateAnnotations])
@@ -247,6 +255,86 @@ func GetNextDeviceRequest(dtype string, p v1.Pod) (v1.Container, ContainerDevice
 		}
 	}
 	return v1.Container{}, res, errors.New("device request not found")
+}
+
+func GetMatchingDeviceRequest(dtype, nodeName string, requestedDeviceIDs []string, pods []v1.Pod) (*v1.Pod, v1.Container, ContainerDevices, error) {
+	var matchedPod *v1.Pod
+	var matchedContainer v1.Container
+	var matchedDevices ContainerDevices
+	matchCount := 0
+
+	for i := range pods {
+		pod := &pods[i]
+		if !podMatchesNode(pod, nodeName) || !podIdentityAnnotationsMatch(pod) {
+			continue
+		}
+		pdevices, _ := DecodePodDevices(pod.Annotations[AssignedIDsToAllocateAnnotations])
+		for idx, val := range pdevices {
+			devices := devicesOfType(dtype, val)
+			if len(devices) == 0 || !deviceIDsMatch(devices, requestedDeviceIDs) {
+				continue
+			}
+			if idx >= len(pod.Spec.Containers) {
+				klog.Warningf("skipping malformed device annotation on pod %s/%s: container index %d out of range", pod.Namespace, pod.Name, idx)
+				continue
+			}
+			matchCount++
+			matchedPod = pod
+			matchedContainer = pod.Spec.Containers[idx]
+			matchedDevices = devices
+		}
+	}
+
+	if matchCount == 0 {
+		return nil, v1.Container{}, nil, errors.New("device request not found")
+	}
+	if matchCount > 1 {
+		return nil, v1.Container{}, nil, fmt.Errorf("ambiguous device request matched %d pod containers", matchCount)
+	}
+	return matchedPod, matchedContainer, matchedDevices, nil
+}
+
+func podMatchesNode(pod *v1.Pod, nodeName string) bool {
+	return pod != nil && nodeName != "" && pod.Spec.NodeName == nodeName
+}
+
+func podIdentityAnnotationsMatch(pod *v1.Pod) bool {
+	if pod == nil {
+		return false
+	}
+	// The identity annotations are copied from Volcano's allocation decision.
+	// Require them to match the live Pod object so stale or incorrectly copied
+	// annotations cannot make a different Pod look like the allocation target.
+	return pod.Annotations[AssignedPodNameAnnotations] == pod.Name &&
+		pod.Annotations[AssignedPodNamespaceAnnotations] == pod.Namespace &&
+		pod.Annotations[AssignedPodUIDAnnotations] == string(pod.UID)
+}
+
+func devicesOfType(dtype string, devices ContainerDevices) ContainerDevices {
+	res := ContainerDevices{}
+	for _, dev := range devices {
+		if strings.Compare(dtype, dev.Type) == 0 {
+			res = append(res, dev)
+		}
+	}
+	return res
+}
+
+func deviceIDsMatch(devices ContainerDevices, requestedDeviceIDs []string) bool {
+	if len(devices) != len(requestedDeviceIDs) {
+		return false
+	}
+	expected := map[string]int{}
+	for _, device := range devices {
+		expected[device.UUID]++
+	}
+	for _, requestedDeviceID := range requestedDeviceIDs {
+		if expected[requestedDeviceID] == 0 {
+			return false
+		}
+		expected[requestedDeviceID]--
+	}
+	return true
 }
 
 func EraseNextDeviceTypeFromAnnotation(dtype string, p v1.Pod) error {
