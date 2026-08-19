@@ -1,0 +1,252 @@
+# Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# This manifest deploys volcano-vgpu-device-plugin configured for use with
+# NVIDIA nvml-mock (https://github.com/nvidia/k8s-test-infra).
+# nvml-mock provides a fake libnvidia-ml.so that simulates GPU devices on
+# nodes without real GPUs, enabling testing of the device-plugin in a
+# kind cluster.
+#
+# Prerequisites:
+#   1. Deploy nvml-mock first: helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock
+#   2. The default driverRoot is /var/lib/nvml-mock/driver — adjust if needed.
+#
+# Note: The monitor container is omitted in this manifest because nvml-mock
+# does not provide real GPU metrics.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: volcano-vgpu-device-config
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/component: volcano-vgpu-device-plugin
+data:
+  device-config.yaml: |-
+    nvidia:
+      resourceCountName: volcano.sh/vgpu-number
+      resourceMemoryName: volcano.sh/vgpu-memory
+      resourceMemoryPercentageName: volcano.sh/vgpu-memory-percentage
+      resourceCoreName: volcano.sh/vgpu-cores
+      overwriteEnv: false
+      defaultMemory: 0
+      defaultCores: 0
+      defaultGPUNum: 1
+      deviceSplitCount: 10
+      deviceMemoryScaling: 1
+      deviceCoreScaling: 1
+      gpuMemoryFactor: 1
+      knownMigGeometries:
+      - models: [ "A30" ]
+        allowedGeometries:
+          - group: group1
+            geometries:
+            - name: 1g.6gb
+              memory: 6144
+              count: 4
+          - group: group2
+            geometries:
+            - name: 2g.12gb
+              memory: 12288
+              count: 2
+          - group: group3
+            geometries:
+            - name: 4g.24gb
+              memory: 24576
+              count: 1
+      - models: [ "A100-SXM4-40GB", "A100-40GB-PCIe", "A100-PCIE-40GB", "A100-SXM4-40GB" ]
+        allowedGeometries:
+          - group: "group1"
+            geometries:
+            - name: 1g.5gb
+              memory: 5120
+              count: 7
+          - group: "group2"
+            geometries:
+            - name: 2g.10gb
+              memory: 10240
+              count: 3
+            - name: 1g.5gb
+              memory: 5120
+              count: 1
+          - group: "group3"
+            geometries:
+            - name: 3g.20gb
+              memory: 20480
+              count: 2
+          - group: "group4"
+            geometries:
+            - name: 7g.40gb
+              memory: 40960
+              count: 1
+      - models: [ "A100-SXM4-80GB", "A100-80GB-PCIe", "A100-PCIE-80GB"]
+        allowedGeometries:
+          - group: "group1"
+            geometries:
+            - name: 1g.10gb
+              memory: 9728
+              count: 7
+          - group: "group2"
+            geometries:
+            - name: 2g.20gb
+              memory: 19968
+              count: 3
+            - name: 1g.10gb
+              memory: 9728
+              count: 1
+          - group: "group3"
+            geometries:
+            - name: 3g.40gb
+              memory: 40192
+              count: 2
+          - group: "group4"
+            geometries:
+            - name: 7g.80gb
+              memory: 80896
+              count: 1
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: volcano-device-plugin
+  namespace: kube-system
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: volcano-device-plugin
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch", "update", "patch"]
+- apiGroups: [""]
+  resources: ["nodes/status"]
+  verbs: ["patch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "update", "patch", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: volcano-device-plugin
+subjects:
+- kind: ServiceAccount
+  name: volcano-device-plugin
+  namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: volcano-device-plugin
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: volcano-device-plugin
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: volcano-device-plugin
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        scheduler.alpha.kubernetes.io/critical-pod: ""
+      labels:
+        name: volcano-device-plugin
+    spec:
+      tolerations:
+      - key: CriticalAddonsOnly
+        operator: Exists
+      - key: volcano.sh/gpu-memory
+        operator: Exists
+        effect: NoSchedule
+      priorityClassName: "system-node-critical"
+      serviceAccountName: volcano-device-plugin
+      initContainers:
+      - name: copy-vgpu-lib
+        image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.12.0
+        command: ["/bin/sh", "-c", "cp -f /k8s-vgpu/lib/nvidia/* /usr/local/vgpu/"]
+        volumeMounts:
+        - name: lib
+          mountPath: /usr/local/vgpu
+      containers:
+      - image: docker.io/projecthami/volcano-vgpu-device-plugin:v1.12.0
+        name: volcano-device-plugin
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: HOOK_PATH
+          value: "/usr/local/vgpu"
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: "all"
+        - name: NVIDIA_MIG_MONITOR_DEVICES
+          value: "all"
+        - name: NVIDIA_DRIVER_CAPABILITIES
+          value: "utility"
+        # nvml-mock configuration
+        - name: NVIDIA_DRIVER_ROOT
+          value: /var/lib/nvml-mock/driver
+        - name: CONTAINER_DRIVER_ROOT
+          value: /var/lib/nvml-mock/driver
+        - name: NVIDIA_DEV_ROOT
+          value: /var/lib/nvml-mock/driver
+        - name: DEVICE_DISCOVERY_STRATEGY
+          value: "nvml"
+        - name: DP_DISABLE_HEALTHCHECKS
+          value: "all"
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: deviceconfig
+          mountPath: /config
+        - name: device-plugin
+          mountPath: /var/lib/kubelet/device-plugins
+        - name: lib
+          mountPath: /usr/local/vgpu
+        - name: hosttmp
+          mountPath: /tmp
+        - name: mock-root
+          mountPath: /var/lib/nvml-mock/driver
+          readOnly: true
+      volumes:
+      - name: deviceconfig
+        configMap:
+          name: volcano-vgpu-device-config
+      - hostPath:
+          path: /var/lib/kubelet/device-plugins
+          type: Directory
+        name: device-plugin
+      - hostPath:
+          path: /usr/local/vgpu
+          type: DirectoryOrCreate
+        name: lib
+      - name: hosttmp
+        hostPath:
+          path: /tmp
+          type: DirectoryOrCreate
+      - name: mock-root
+        hostPath:
+          path: /var/lib/nvml-mock/driver
+          type: Directory
