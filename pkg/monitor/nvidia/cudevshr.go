@@ -248,11 +248,52 @@ func loadCache(fpath string) (*ContainerUsage, error) {
 	return usage, nil
 }
 
-func isValidPod(name string, pods *corev1.PodList) bool {
-	for _, val := range pods.Items {
-		if strings.Contains(name, string(val.UID)) {
-			return true
-		}
+// parseContainerDirName extracts pod UID and container name from cache directory name
+// Directory format: {POD_UID}_{CONTAINER_NAME}_{CONTAINER_ID}
+func parseContainerDirName(name string) (podUID string, containerName string) {
+	parts := strings.Split(name, "_")
+	if len(parts) >= 2 {
+		podUID = parts[0]
+		containerName = parts[1]
 	}
+	return podUID, containerName
+}
+
+// isValidPod checks if a pod is still running and the corresponding container is active
+func isValidPod(name string, pods *corev1.PodList) bool {
+	podUID, containerName := parseContainerDirName(name)
+
+	if podUID == "" || containerName == "" {
+		klog.Warningf("Failed to parse pod UID or container name from cache directory: %s", name)
+		return false
+	}
+
+	for _, pod := range pods.Items {
+		if string(pod.UID) != podUID {
+			continue
+		}
+
+		if pod.Status.Phase != corev1.PodRunning {
+			klog.Infof("Pod %s/%s is not in Running phase (phase: %s), marking as invalid",
+				pod.Namespace, pod.Name, pod.Status.Phase)
+			return false
+		}
+
+		for _, containerStatus := range pod.Status.ContainerStatuses {
+			if containerStatus.Name == containerName {
+				if containerStatus.State.Running != nil {
+					return true
+				}
+				klog.Infof("Container %s in pod %s/%s is not running (State: %v), marking as invalid",
+					containerName, pod.Namespace, pod.Name, containerStatus.State)
+				return false
+			}
+		}
+
+		klog.Warningf("Container %s not found in pod %s/%s status", containerName, pod.Namespace, pod.Name)
+		return false
+	}
+
+	// Pod not found in cluster
 	return false
 }
