@@ -97,7 +97,7 @@ func NewContainerLister() (*ContainerLister, error) {
 		return nil, err
 	}
 	return &ContainerLister{
-		containerPath: filepath.Join(hookPath, "containers"),
+		containerPath: filepath.Join(hookPath, "/vgpu/containers"),
 		containers:    make(map[string]*ContainerUsage),
 		clientset:     clientset,
 	}, nil
