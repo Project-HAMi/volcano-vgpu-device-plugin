@@ -120,6 +120,9 @@ rbac:
 daemonset:
   priorityClassName: "system-node-critical"
   tolerations: []
+
+# RuntimeClass for the device-plugin daemonset (e.g. "nvidia" for containerd clusters where runc is default)
+runtimeClassName: ""
   # Additional tolerations can be added:
   # - key: volcano.sh/gpu-memory
   #   operator: Exists
