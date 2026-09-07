@@ -152,6 +152,10 @@ tolerations:
   operator: Exists
   effect: NoSchedule
 
+# Logging configuration
+logging:
+  klogLevel: "2"
+
 cdi:
   enabled: false
   deviceListStrategy: "cdi-annotations"

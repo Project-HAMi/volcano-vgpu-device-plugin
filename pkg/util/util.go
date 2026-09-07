@@ -89,6 +89,11 @@ func getOldestPod(pods []v1.Pod, nodename string, gpuAmount int) *v1.Pod {
 	found := false
 	filteredPods := []v1.Pod{}
 	for _, pod := range pods {
+		if pod.Status.Phase != v1.PodPending {
+			klog.V(3).Infof("GetOldestPod -- Skip non-pending pod: %s, phase: %s", pod.Name, pod.Status.Phase)
+			continue
+		}
+
 		if pod.Annotations[AssignedNodeAnnotations] == nodename {
 			// Need to ensure that the pod being handled has the same number of devices as the node requesting
 			pdevices, deviceCount := DecodePodDevices(pod.Annotations[AssignedIDsToAllocateAnnotations])
@@ -112,7 +117,7 @@ func getOldestPod(pods []v1.Pod, nodename string, gpuAmount int) *v1.Pod {
 	}
 
 	if found {
-		klog.V(4).Infof("GetOldestPod -- oldest pod %#v, predicate time: %#v", oldest.Name,
+		klog.Infof("GetOldestPod -- oldest pod %#v, predicate time: %#v", oldest.Name,
 			oldest.Annotations[AssignedTimeAnnotations])
 		return &oldest
 	}
@@ -348,6 +353,11 @@ func PatchNodeAnnotations(node *v1.Node, annotations map[string]string) error {
 }
 
 func PatchPodAnnotations(pod *v1.Pod, annotations map[string]string) error {
+	const (
+		maxRetries    = 3
+		retryInterval = 500 * time.Millisecond
+	)
+
 	type patchMetadata struct {
 		Annotations map[string]string `json:"annotations,omitempty"`
 	}
@@ -363,12 +373,57 @@ func PatchPodAnnotations(pod *v1.Pod, annotations map[string]string) error {
 	if err != nil {
 		return err
 	}
-	_, err = client.GetClient().CoreV1().Pods(pod.Namespace).
-		Patch(context.Background(), pod.Name, k8stypes.StrategicMergePatchType, bytes, metav1.PatchOptions{})
-	if err != nil {
-		klog.Infof("patch pod %v failed, %v", pod.Name, err)
+
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		_, err = client.GetClient().CoreV1().Pods(pod.Namespace).
+			Patch(context.Background(), pod.Name, k8stypes.StrategicMergePatchType, bytes, metav1.PatchOptions{})
+		if err != nil {
+			lastErr = fmt.Errorf("patch failed: %v", err)
+			klog.Warningf("patch pod %s/%s failed (attempt %d/%d): %v", pod.Namespace, pod.Name, attempt, maxRetries, err)
+			if attempt < maxRetries {
+				time.Sleep(retryInterval)
+			}
+			continue
+		}
+
+		// Patch succeeded, verify annotations consistency
+		err = verifyPodAnnotations(pod, annotations)
+		if err == nil {
+			return nil
+		}
+		lastErr = fmt.Errorf("verify failed: %v", err)
+		klog.Warningf("verify annotations for pod %s/%s failed (attempt %d/%d): %v", pod.Namespace, pod.Name, attempt, maxRetries, err)
+		if attempt < maxRetries {
+			time.Sleep(retryInterval)
+		}
 	}
-	return err
+
+	klog.Errorf("patch pod %s/%s failed after %d retries: %v", pod.Namespace, pod.Name, maxRetries, lastErr)
+	return lastErr
+}
+
+// verifyPodAnnotations fetches the updated pod from k8s cluster and verifies annotations match expectations
+func verifyPodAnnotations(pod *v1.Pod, annotations map[string]string) error {
+	updatedPod, err := client.GetClient().CoreV1().Pods(pod.Namespace).
+		Get(context.Background(), pod.Name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get pod %s/%s failed: %v", pod.Namespace, pod.Name, err)
+	}
+
+	for key, expectedVal := range annotations {
+		actualVal, exists := updatedPod.Annotations[key]
+		if !exists {
+			return fmt.Errorf("pod %s/%s annotation %q missing", pod.Namespace, pod.Name, key)
+		}
+		if actualVal != expectedVal {
+			return fmt.Errorf("pod %s/%s annotation %q mismatch, expected=%q, actual=%q",
+				pod.Namespace, pod.Name, key, expectedVal, actualVal)
+		}
+	}
+
+	klog.V(3).Infof("verify annotations: pod %s/%s annotations verified successfully", pod.Namespace, pod.Name)
+	return nil
 }
 
 // legacyDeviceConfigNamespaces are the namespaces the device ConfigMap has
