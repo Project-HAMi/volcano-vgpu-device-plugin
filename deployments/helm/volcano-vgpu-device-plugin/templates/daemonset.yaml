@@ -56,6 +56,8 @@ spec:
           value: "all"
         - name: NVIDIA_DRIVER_CAPABILITIES
           value: "utility"
+        - name: DEVICE_CONFIG_NAMESPACE
+          value: {{ .Values.namespace | quote }}
         {{- if .Values.cdi.enabled }}
         - name: DEVICE_LIST_STRATEGY
           value: {{ .Values.cdi.deviceListStrategy }}

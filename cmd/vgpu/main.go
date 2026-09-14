@@ -197,6 +197,11 @@ func main() {
 			Usage: "the ratio for NVIDIA device cores scaling",
 			Value: 1.0,
 		},
+		&cli.StringFlag{
+			Name:    "device-config-namespace",
+			Usage:   "the namespace of the volcano-vgpu-device-config ConfigMap; it is searched before kube-system and volcano-system",
+			EnvVars: []string{"DEVICE_CONFIG_NAMESPACE"},
+		},
 	}
 	o.flags = c.Flags
 
