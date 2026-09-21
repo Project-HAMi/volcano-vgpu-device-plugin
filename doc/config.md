@@ -14,6 +14,8 @@ kubectl edit configmap volcano-vgpu-device-config -n <namespace>
 
 After making changes, restart the volcano-vgpu-device-plugin and volcano-scheduler to apply the updated configurations.
 
+By default the device plugin looks for the ConfigMap in the `kube-system` namespace and then in `volcano-system`. To read it from another namespace, set the `--device-config-namespace` flag (or the `DEVICE_CONFIG_NAMESPACE` environment variable) on the device plugin; that namespace is searched first. The Helm chart sets it to its `namespace` value (`--set namespace=...`), which is where the chart creates the ConfigMap. The volcano-scheduler must be pointed at the same ConfigMap through its `deviceshare.KnownGeometriesCMNamespace` plugin argument.
+
 * `nvidia.deviceMemoryScaling`: 
   Float type, by default: 1. The ratio for NVIDIA device memory scaling, can be greater than 1 (enable virtual device memory, experimental feature). For NVIDIA GPU with *M* memory, if we set `nvidia.deviceMemoryScaling` argument to *S*, vGPUs splitted by this GPU will totally get `S * M` memory in Kubernetes with our device plugin.
 * `nvidia.deviceSplitCount`: 

@@ -28,13 +28,16 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/urfave/cli/v2"
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 	"tags.cncf.io/container-device-interface/specs-go"
@@ -368,13 +371,57 @@ func PatchPodAnnotations(pod *v1.Pod, annotations map[string]string) error {
 	return err
 }
 
-func LoadConfigFromCM(cmName string) (*config.Config, error) {
-	cm, err := client.GetClient().CoreV1().ConfigMaps("kube-system").Get(context.Background(), cmName, metav1.GetOptions{})
-	if err != nil {
-		cm, err = client.GetClient().CoreV1().ConfigMaps("volcano-system").Get(context.Background(), cmName, metav1.GetOptions{})
-		if err != nil {
+// legacyDeviceConfigNamespaces are the namespaces the device ConfigMap has
+// always been looked up in, in order, when no namespace is configured.
+var legacyDeviceConfigNamespaces = []string{"kube-system", "volcano-system"}
+
+// deviceConfigNamespaces returns the namespaces to search for the device
+// ConfigMap: the configured namespace first, then the legacy ones, so
+// existing deployments keep working without setting the flag.
+func deviceConfigNamespaces(configured string) []string {
+	namespaces := make([]string, 0, len(legacyDeviceConfigNamespaces)+1)
+	if configured != "" {
+		namespaces = append(namespaces, configured)
+	}
+	for _, ns := range legacyDeviceConfigNamespaces {
+		if ns != configured {
+			namespaces = append(namespaces, ns)
+		}
+	}
+	return namespaces
+}
+
+// deviceConfigLookupTimeout bounds the whole ConfigMap lookup at startup.
+const deviceConfigLookupTimeout = 30 * time.Second
+
+// LoadConfigFromCM loads the device configuration from the ConfigMap cmName,
+// looking in namespace first (when set) and then in the legacy namespaces.
+func LoadConfigFromCM(namespace, cmName string) (*config.Config, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), deviceConfigLookupTimeout)
+	defer cancel()
+	return loadConfigFromCM(ctx, client.GetClient(), deviceConfigNamespaces(namespace), cmName)
+}
+
+// loadConfigFromCM tries the namespaces in order and moves on to the next one
+// only when the ConfigMap is not found there; any other error is returned as is
+// so that a Forbidden or transport error is not hidden by a legacy fallback.
+func loadConfigFromCM(ctx context.Context, cs kubernetes.Interface, namespaces []string, cmName string) (*config.Config, error) {
+	var cm *v1.ConfigMap
+	var err error
+	for _, ns := range namespaces {
+		cm, err = cs.CoreV1().ConfigMaps(ns).Get(ctx, cmName, metav1.GetOptions{})
+		if err == nil {
+			break
+		}
+		if !apierrors.IsNotFound(err) {
 			return nil, err
 		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if cm == nil {
+		return nil, fmt.Errorf("ConfigMap %v not found in namespaces %v", cmName, namespaces)
 	}
 	data, ok := cm.Data[DeviceConfigurationConfigMapKey]
 	if !ok {
@@ -571,7 +618,7 @@ func LoadNvidiaConfig(c *cli.Context) *config.NvidiaConfig {
 	config.DeviceSplitCount = c.Uint("device-split-count")
 	config.GPUMemoryFactor = c.Uint("gpu-memory-factor")
 	config.DeviceCoresScaling = c.Float64("device-cores-scaling")
-	configs, err := LoadConfigFromCM("volcano-vgpu-device-config")
+	configs, err := LoadConfigFromCM(c.String("device-config-namespace"), "volcano-vgpu-device-config")
 	if err != nil {
 		klog.InfoS("configMap not found", err.Error())
 	}
