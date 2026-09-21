@@ -26,6 +26,9 @@ spec:
       {{- if .Values.daemonset.priorityClassName }}
       priorityClassName: {{ .Values.daemonset.priorityClassName }}
       {{- end }}
+      {{- if .Values.runtimeClassName }}
+      runtimeClassName: {{ .Values.runtimeClassName }}
+      {{- end }}
       serviceAccountName: {{ .Values.rbac.serviceAccountName }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
