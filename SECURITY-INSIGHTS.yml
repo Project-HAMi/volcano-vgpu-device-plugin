@@ -61,6 +61,18 @@ repository:
   license:
     url: https://github.com/Project-HAMi/volcano-vgpu-device-plugin/blob/main/LICENSE
     expression: Apache-2.0
+  release:
+    automated-pipeline: true
+    distribution-points:
+      - uri: https://hub.docker.com/r/projecthami/volcano-vgpu-device-plugin
+        comment: |
+          Container image built by the Build Release Image workflow for
+          linux/amd64 and linux/arm64 on every vX.Y.Z tag, published as
+          projecthami/volcano-vgpu-device-plugin:{version}.
+      - uri: https://github.com/Project-HAMi/volcano-vgpu-device-plugin
+        comment: |
+          Source and deployment manifests are distributed only from this
+          repository, over HTTPS.
   security:
     assessments:
       self:
