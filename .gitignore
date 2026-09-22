@@ -134,3 +134,14 @@ updateso.sh
 
 lib/nvidia/libvgpu/build
 
+
+# Secrets and credentials, never commit these
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.kubeconfig
+kubeconfig
+credentials.json
