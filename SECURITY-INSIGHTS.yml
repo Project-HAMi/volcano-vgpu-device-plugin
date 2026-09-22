@@ -1,5 +1,5 @@
 header:
-  schema-version: 2.0.0
+  schema-version: 2.1.0
   last-updated: '2026-09-22'
   last-reviewed: '2026-09-22'
   url: https://github.com/Project-HAMi/volcano-vgpu-device-plugin/blob/main/SECURITY-INSIGHTS.yml
@@ -10,31 +10,30 @@ header:
 project:
   name: volcano-vgpu-device-plugin
   homepage: https://project-hami.io
-  documentation:
-    code-of-conduct: https://github.com/Project-HAMi/HAMi/blob/master/CODE_OF_CONDUCT.md
   administrators:
     - name: limengxuan
-      affiliation: dynamia.ai
-      email: mengxuan.li@dynamia.ai
+      affiliation: Dynamia AI
+      social: https://github.com/archlitchi
       primary: true
+  documentation:
+    quickstart-guide: https://project-hami.io/docs/installation/how-to-use-volcano-vgpu
+    detailed-guide: https://project-hami.io/docs/userguide/volcano-vgpu/nvidia-gpu/how-to-use-volcano-vgpu
+    code-of-conduct: https://github.com/Project-HAMi/community/blob/main/CODE-OF-CONDUCT.md
   repositories:
     - name: volcano-vgpu-device-plugin
       url: https://github.com/Project-HAMi/volcano-vgpu-device-plugin
       comment: |
-        Kubernetes device plugin that exposes NVIDIA vGPU resources to the
-        Volcano scheduler, subproject of HAMi. Active, accepts contributions.
+        This repository. Kubernetes device plugin that exposes NVIDIA vGPU
+        resources to the Volcano scheduler, subproject of HAMi.
     - name: HAMi-core
       url: https://github.com/Project-HAMi/HAMi-core
       comment: |
         In-container CUDA interception library (libvgpu) that enforces GPU
         memory and compute limits. Included as the libvgpu git submodule and
-        compiled into every release image. Active, maintained by HAMi.
+        compiled into every release image of this repository.
   vulnerability-reporting:
     reports-accepted: true
     bug-bounty-available: false
-    contact:
-      name: volcano-vgpu-device-plugin maintainers
-      primary: true
     security-policy: https://github.com/Project-HAMi/volcano-vgpu-device-plugin/blob/main/SECURITY.md
     comment: |
       Report vulnerabilities privately via GitHub Security Advisories:
@@ -50,11 +49,13 @@ repository:
   no-third-party-packages: false
   core-team:
     - name: limengxuan
-      affiliation: dynamia.ai
-      email: mengxuan.li@dynamia.ai
+      affiliation: Dynamia AI
+      social: https://github.com/archlitchi
       primary: true
   documentation:
     contributing-guide: https://github.com/Project-HAMi/volcano-vgpu-device-plugin/blob/main/CONTRIBUTING.md
+    review-policy: https://github.com/Project-HAMi/volcano-vgpu-device-plugin/blob/main/CONTRIBUTING.md#review-requirements
+    dependency-management-policy: https://github.com/Project-HAMi/volcano-vgpu-device-plugin/blob/main/SECURITY.md#dependency-management
     security-policy: https://github.com/Project-HAMi/volcano-vgpu-device-plugin/blob/main/SECURITY.md
     governance: https://github.com/Project-HAMi/community/blob/main/community-membership.md
   license:
@@ -64,8 +65,7 @@ repository:
     assessments:
       self:
         comment: |
-          Dependencies are monitored with Dependabot. Go toolchain and module
-          updates are applied when vulnerabilities are published.
+          No self assessment has been completed.
     tools:
       - name: Dependabot
         type: SCA
@@ -78,10 +78,23 @@ repository:
           release: false
         results: {}
         comment: |
-          Automated dependency update PRs for Go modules, GitHub Actions and
-          Docker base images.
+          Dependency alerts and weekly update pull requests for Go modules,
+          GitHub Actions and the Docker base image.
+      - name: CodeQL
+        type: SAST
+        version: latest
+        rulesets:
+          - built-in
+        integration:
+          adhoc: true
+          ci: true
+          release: false
+        results: {}
+        comment: |
+          Static analysis of Go code and GitHub Actions workflows on every pull
+          request, on pushes to main and weekly.
       - name: GitHub secret scanning
-        type: secret-scanning
+        type: secret
         version: latest
         rulesets:
           - built-in
@@ -94,3 +107,16 @@ repository:
           GitHub native secret scanning with push protection, enabled on the
           repository to detect supported secret patterns and block them from
           being pushed.
+      - name: OpenSSF Scorecard
+        type: other
+        version: latest
+        rulesets:
+          - built-in
+        integration:
+          adhoc: true
+          ci: true
+          release: false
+        results: {}
+        comment: |
+          Weekly and on-push supply chain posture checks, results published to
+          the OpenSSF REST API and the code scanning dashboard.

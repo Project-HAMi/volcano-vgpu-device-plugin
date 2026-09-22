@@ -25,6 +25,9 @@ on:
     - synchronize
     - reopened
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -38,25 +41,21 @@ jobs:
         sudo rm -rf "$AGENT_TOOLSDIRECTORY"
         echo "=========after clean up, the left CI disk space"
         df -h
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        submodules: true
+        persist-credentials: false
     - name: Install Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: go.mod
-    - name: Checkout submodule
-      uses: Mushus/checkout-submodule@v1.0.1
-      with:
-        submodulePath: libvgpu
     - run: go version
-    - name: Get branch name
-      uses: nelonoel/branch-name@v1.0.1
     - name: Set up Docker Buildx
       id: buildx
-      uses: docker/setup-buildx-action@v1
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
     - name: Generating image tag
       id: runtime-tag
       run: |
-        echo tag="$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        echo tag="$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
     - run: BUILD_PLATFORMS="linux/amd64" VERSION="${{ steps.runtime-tag.outputs.tag }}" make ubuntu20.04
