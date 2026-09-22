@@ -58,6 +58,13 @@ Docker base image every week, and Dependabot alerts provide dependency scanning
 - Open SCA findings rated critical or high must be resolved before release.
   Maintainers run `govulncheck ./...` on the release commit to confirm this.
 
+Dependency review (SCA) must check every pull request for known
+vulnerabilities and malicious dependencies. The `dependency-review` check is
+required on `main`, so a pull request that introduces such a finding is blocked
+from merging until it is fixed. A finding can be waived only when it is declared
+non-exploitable in the pull request with a justification, and its advisory ID is
+added to `allow-ghsas` in `.github/workflows/dependency-review.yaml`.
+
 ## Secrets Management
 
 Credentials used by CI, such as the registry tokens used by the release
