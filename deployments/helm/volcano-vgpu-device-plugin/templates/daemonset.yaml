@@ -61,6 +61,8 @@ spec:
           value: "utility"
         - name: DEVICE_CONFIG_NAMESPACE
           value: {{ .Values.namespace | quote }}
+        - name: KLOG_LEVEL
+          value: {{ .Values.logging.klogLevel | quote }}
         {{- if .Values.cdi.enabled }}
         - name: DEVICE_LIST_STRATEGY
           value: {{ .Values.cdi.deviceListStrategy }}
@@ -119,6 +121,8 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
+        - name: KLOG_LEVEL
+          value: {{ .Values.logging.klogLevel | quote }}
         securityContext:
           privileged: true
           allowPrivilegeEscalation: true

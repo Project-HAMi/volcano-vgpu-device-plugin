@@ -207,6 +207,8 @@ spec:
               command: ["/bin/sh", "-c", "cp -f /k8s-vgpu/lib/nvidia/* /usr/local/vgpu/"]
         name: volcano-device-plugin
         env:
+        - name: KLOG_LEVEL
+          value: "2"
         - name: NODE_NAME
           valueFrom:
             fieldRef:
@@ -241,6 +243,8 @@ spec:
         - -c
         - volcano-vgpu-monitor
         env:
+        - name: KLOG_LEVEL
+          value: "2"
         - name: NVIDIA_VISIBLE_DEVICES
           value: "all"
         - name: NVIDIA_MIG_MONITOR_DEVICES

@@ -17,10 +17,26 @@ limitations under the License.
 package main
 
 import (
+	"flag"
+	"os"
+
 	"volcano.sh/k8s-device-plugin/pkg/monitor/nvidia"
 
 	"k8s.io/klog/v2"
 )
+
+func init() {
+	// Do not register to flag.CommandLine to avoid conflict with urfave/cli's -v (version) flag
+	klogFlags := flag.NewFlagSet("klog", flag.ContinueOnError)
+	klog.InitFlags(klogFlags)
+
+	// Set klog log level, configurable via KLOG_LEVEL environment variable, default is 2
+	level := os.Getenv("KLOG_LEVEL")
+	if level == "" {
+		level = "2"
+	}
+	_ = klogFlags.Set("v", level)
+}
 
 func main() {
 	if err := ValidateEnvVars(); err != nil {
