@@ -20,6 +20,7 @@ And collaborate with volcano, it is possible to enable GPU sharing.
   - [Enabling vGPU Support in Kubernetes](#enabling-gpu-support-in-kubernetes)
   - [Running vGPU Jobs](#running-vgpu-jobs)
 - [Issues and Contributing](#issues-and-contributing)
+- [Support](#support)
 
 ## Version Compatibility Matrix
 
@@ -314,8 +315,15 @@ vGPU_device_memory_usage_in_bytes{ctrname="cuda-container",deviceuuid="GPU-xxxx"
 # Issues and Contributing
 [Checkout the Contributing document!](CONTRIBUTING.md)
 
-* You can report a bug by [filing a new issue](https://github.com/Project-HAMi/volcano-vgpu-device-plugin)
+* You can report a bug by [filing a new issue](https://github.com/Project-HAMi/volcano-vgpu-device-plugin/issues)
 * You can contribute by opening a [pull request](https://help.github.com/articles/using-pull-requests/)
+
+## Support
+
+* Usage questions and bug reports: [GitHub issues](https://github.com/Project-HAMi/volcano-vgpu-device-plugin/issues)
+* User guide: [HAMi documentation](https://project-hami.io/docs/userguide/volcano-vgpu/nvidia-gpu/how-to-use-volcano-vgpu)
+* Community channels: [HAMi community](https://github.com/Project-HAMi/community)
+* Security issues: see [SECURITY.md](SECURITY.md), do not open a public issue
 
 
 ## Upgrading Kubernetes with the device plugin

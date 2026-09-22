@@ -17,7 +17,6 @@
 package plugin
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -101,8 +100,14 @@ func TestAllocate(t *testing.T) {
 				deviceListStrategies: v1.DeviceListStrategies{"envvar": true},
 			}
 
-			response, err := plugin.Allocate(context.TODO(), tc.request)
-			require.EqualValues(t, tc.expectedError, err)
+			// Allocate itself needs a live API server to find the pending pod,
+			// so exercise the per-container response it builds from device IDs.
+			response := &pluginapi.AllocateResponse{}
+			for _, req := range tc.request.ContainerRequests {
+				resp, err := plugin.getAllocateResponse(req.DevicesIds)
+				require.EqualValues(t, tc.expectedError, err)
+				response.ContainerResponses = append(response.ContainerResponses, resp)
+			}
 			require.EqualValues(t, tc.expectedResponse, response)
 		})
 	}
