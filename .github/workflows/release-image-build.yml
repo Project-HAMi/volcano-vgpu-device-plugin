@@ -26,6 +26,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # keyless cosign signing
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -52,3 +55,15 @@ jobs:
         echo tag="$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
     - run: BUILD_PLATFORMS="linux/amd64,linux/arm64" VERSION="${RELEASE_VERSION}" make push-short
     - run: BUILD_PLATFORMS="linux/amd64,linux/arm64" VERSION="${RELEASE_VERSION}-${{ steps.runtime-tag.outputs.tag }}" make push-latest
+    - name: Install cosign
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+    - name: Sign images
+      # Keyless signing with the workflow's GitHub OIDC identity, by digest so
+      # the signature covers exactly the pushed image index.
+      env:
+        IMAGE: docker.io/projecthami/volcano-vgpu-device-plugin
+      run: |
+        for tag in "${RELEASE_VERSION}" latest; do
+          digest=$(docker buildx imagetools inspect "${IMAGE}:${tag}" --format '{{json .Manifest}}' | jq -r .digest)
+          cosign sign --yes "${IMAGE}@${digest}"
+        done
