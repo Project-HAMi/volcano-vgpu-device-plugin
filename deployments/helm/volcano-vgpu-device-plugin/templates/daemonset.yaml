@@ -1,3 +1,10 @@
+{{/* nvmlMock and CDI are mutually exclusive: nvmlMock injects its own
+NVIDIA_DRIVER_ROOT/DEVICE_DISCOVERY_STRATEGY which would override CDI's
+driver root and device list strategy. Fail loudly instead of silently
+dropping one of them. */}}
+{{- if and .Values.nvmlMock.enabled .Values.cdi.enabled }}
+{{- fail "nvmlMock.enabled and cdi.enabled are mutually exclusive; the nvml-mock driver root would override the CDI driver root. Disable one of them." }}
+{{- end }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:

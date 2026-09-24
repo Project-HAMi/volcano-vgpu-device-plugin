@@ -18,6 +18,7 @@ And collaborate with volcano, it is possible to enable GPU sharing.
 - [Quick Start](#quick-start)
   - [Preparing your GPU Nodes](#preparing-your-gpu-nodes)
   - [Enabling vGPU Support in Kubernetes](#enabling-gpu-support-in-kubernetes)
+  - [Testing without real GPUs (nvml-mock)](#testing-without-real-gpus-nvml-mock)
   - [Running vGPU Jobs](#running-vgpu-jobs)
 - [Issues and Contributing](#issues-and-contributing)
 
@@ -220,6 +221,66 @@ $ kubectl apply -f deployments/static/volcano-vgpu-device-plugin.yml
 ###### Deploy
 ```
 $ kubectl apply -f deployments/static/volcano-vgpu-device-plugin.yml
+```
+
+### Testing without real GPUs (nvml-mock)
+
+For local development or CI without physical GPUs, the device-plugin can run
+against [nvml-mock](https://github.com/nvidia/k8s-test-infra), which provides a
+fake `libnvidia-ml.so` that simulates GPU devices on a kind cluster. The same
+approach is used by the [HAMi nvml-mock lab](https://project-hami.io/tutorials/labs/nvml-mock).
+
+> **Note:** nvml-mock only simulates the device discovery path. Use it to verify
+> scheduling and registration behavior — the monitor container is automatically
+> disabled because fake GPUs do not produce meaningful metrics.
+>
+> **Note:** `nvmlMock.enabled` and `cdi.enabled` are mutually exclusive. The
+> nvml-mock driver root would override the CDI driver root, so the Helm chart
+> fails at render time if both are set to `true`.
+
+#### 1. Deploy nvml-mock
+
+Deploy nvml-mock first so the fake driver and `libnvidia-ml.so` are installed on
+the node (default host path: `/var/lib/nvml-mock/driver`):
+
+```bash
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock
+```
+
+#### 2. Deploy the device-plugin with nvml-mock (Helm)
+
+nvml-mock support is provided through the Helm chart only, so that
+`KLOG_LEVEL`, `DEVICE_CONFIG_NAMESPACE`, and other plugin settings stay in sync
+with the rest of the deployment:
+
+```bash
+helm install volcano-vgpu-device-plugin volcano-vgpu-device-plugin/volcano-vgpu-device-plugin \
+    --set nvmlMock.enabled=true
+```
+
+Adjust the driver root if your nvml-mock install uses a non-default path:
+
+```bash
+helm install volcano-vgpu-device-plugin volcano-vgpu-device-plugin/volcano-vgpu-device-plugin \
+    --set nvmlMock.enabled=true \
+    --set nvmlMock.driverRoot=/var/lib/nvml-mock/driver
+```
+
+When `nvmlMock.enabled=true`, the chart injects the `NVIDIA_DRIVER_ROOT`,
+`CONTAINER_DRIVER_ROOT`, `NVIDIA_DEV_ROOT`, `DEVICE_DISCOVERY_STRATEGY=nvml`,
+and `DP_DISABLE_HEALTHCHECKS=all` environment variables, mounts the mock driver
+root, and disables the monitor container.
+
+#### 3. Verify
+
+Once the device-plugin pod is running, check the node capacity — a fake
+`volcano.sh/vgpu-number` resource should appear, same as with real GPUs:
+
+```shell script
+$ kubectl get node {node name} -oyaml
+...
+  capacity:
+    volcano.sh/vgpu-number: "10"   # simulated vGPU resource
 ```
 
 ### Verify environment is ready
