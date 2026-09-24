@@ -280,8 +280,13 @@ Once the device-plugin pod is running, check the node capacity — a fake
 $ kubectl get node {node name} -oyaml
 ...
   capacity:
-    volcano.sh/vgpu-number: "10"   # simulated vGPU resource
+    volcano.sh/vgpu-number: "40"   # simulated vGPU resource
 ```
+
+The exact number equals (fake GPUs from the nvml-mock profile) ×
+`deviceConfig.nvidia.deviceSplitCount`. The nvml-mock chart's default `gb300`
+profile exposes 4 fake GPUs, so with the default `deviceSplitCount: 10` the
+node reports `40`; a profile with 8 GPUs (e.g. `a100`) reports `80`.
 
 ### Verify environment is ready
 
