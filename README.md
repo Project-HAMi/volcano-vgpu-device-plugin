@@ -232,7 +232,9 @@ approach is used by the [HAMi nvml-mock lab](https://project-hami.io/tutorials/l
 
 > **Note:** nvml-mock only simulates the device discovery path. Use it to verify
 > scheduling and registration behavior — the monitor container is automatically
-> disabled because fake GPUs do not produce meaningful metrics.
+> disabled because it cannot resolve the mock NVML library (`SetNvmlLibraryPath`
+> is only called by the device-plugin binary, and the monitor container does
+> not mount the mock driver root), so it would fail NVML initialization.
 >
 > **Note:** `nvmlMock.enabled` and `cdi.enabled` are mutually exclusive. The
 > nvml-mock driver root would override the CDI driver root, so the Helm chart
