@@ -2,8 +2,10 @@
 
 The main GPU device plugin owns `/vgpu/containers` beneath `HOOK_PATH`.
 Each cache directory is named `<pod UID>_<container name>`. Allocate must
-successfully remove any previous directory, create the new directory, and set
-its permissions before returning its mount or consuming the allocation annotation.
+successfully create or reuse the directory and set its permissions before returning its mount or consuming the allocation annotation.
+Repeated allocation preserves the directory and reuses its one existing cache
+file, or selects `shared.cache` if none exists yet. Multiple cache files are
+rejected as ambiguous. Only garbage collection deletes cache directories.
 `HOOK_PATH` must be absolute and `NODE_NAME` must identify the plugin's node.
 
 The plugin checks its node-scoped Pod informer every five seconds. Garbage

@@ -452,7 +452,6 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 					response.Envs[limitKey] = fmt.Sprintf("%vm", dev.Usedmem*int32(config.GPUMemoryFactor))
 				}
 				response.Envs["CUDA_DEVICE_SM_LIMIT"] = fmt.Sprint(devreq[0].Usedcores)
-				response.Envs["CUDA_DEVICE_MEMORY_SHARED_CACHE"] = fmt.Sprintf("/tmp/vgpu/%v.cache", uuid.New().String())
 
 				if config.DeviceCoresScaling > 1 {
 					response.Envs["CUDA_OVERSUBSCRIBE"] = "true"
@@ -467,6 +466,12 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 					util.PodAllocationFailed(nodeName, current)
 					return nil, fmt.Errorf("prepare vGPU cache: %w", err)
 				}
+				cacheName, err := vgpucache.CacheFileName(cacheFileHostDirectory)
+				if err != nil {
+					util.PodAllocationFailed(nodeName, current)
+					return nil, fmt.Errorf("select vGPU cache: %w", err)
+				}
+				response.Envs["CUDA_DEVICE_MEMORY_SHARED_CACHE"] = filepath.Join("/tmp/vgpu", cacheName)
 
 				response.Mounts = append(response.Mounts,
 					&pluginapi.Mount{ContainerPath: "/usr/local/vgpu/libvgpu.so",

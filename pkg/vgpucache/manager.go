@@ -105,7 +105,7 @@ func New(config Config, listNodePods, listLiveNodePods func() ([]*corev1.Pod, er
 	}, nil
 }
 
-// Prepare replaces any old cache directory for a Pod container and returns its
+// Prepare preserves an existing cache directory for retries and returns its
 // host path for the Allocate response.
 func (m *Manager) Prepare(podUID, containerName string) (string, error) {
 	name := podUID + "_" + containerName
@@ -123,15 +123,22 @@ func (m *Manager) Prepare(podUID, containerName string) (string, error) {
 	if err := m.ensureRoot(); err != nil {
 		return "", err
 	}
-	if err := os.RemoveAll(target); err != nil {
-		return "", fmt.Errorf("remove previous vGPU cache directory %s: %w", target, err)
+	info, err := os.Lstat(target)
+	if os.IsNotExist(err) {
+		if err := os.Mkdir(target, 0o777); err != nil {
+			return "", fmt.Errorf("create vGPU cache directory %s: %w", target, err)
+		}
+	} else if err != nil {
+		return "", fmt.Errorf("stat vGPU cache directory %s: %w", target, err)
+	} else if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("vGPU cache entry is not a real directory: %s", target)
 	}
 	delete(m.deletionFailures, target)
-	if err := os.Mkdir(target, 0o777); err != nil {
-		return "", fmt.Errorf("create vGPU cache directory %s: %w", target, err)
-	}
 	if err := m.chmod(target, 0o777); err != nil {
 		return "", fmt.Errorf("set vGPU cache directory permissions %s: %w", target, err)
+	}
+	if err := os.Chtimes(target, m.now(), m.now()); err != nil {
+		return "", fmt.Errorf("refresh vGPU cache grace period %s: %w", target, err)
 	}
 	return target, nil
 }
@@ -362,4 +369,31 @@ func ParseDirectoryName(name string) (string, string, bool) {
 		return "", "", false
 	}
 	return parts[0], parts[1], true
+}
+
+// CacheFileName preserves an existing cache on RPC retries and upgrades. Before
+// cuInit creates the file, all retries choose the same name. Ambiguous legacy
+// directories are rejected rather than silently monitoring a different cache.
+func CacheFileName(directory string) (string, error) {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return "", err
+	}
+	name := ""
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".cache") {
+			continue
+		}
+		if !entry.Type().IsRegular() {
+			return "", fmt.Errorf("cache entry %s is not a regular file", entry.Name())
+		}
+		if name != "" {
+			return "", fmt.Errorf("multiple cache files in %s", directory)
+		}
+		name = entry.Name()
+	}
+	if name == "" {
+		name = "shared.cache"
+	}
+	return name, nil
 }

@@ -44,9 +44,9 @@ func newTestManager(t *testing.T, root string, pods func() ([]*corev1.Pod, error
 	return manager
 }
 
-// TestPrepareReplacesDirectory checks that Prepare clears old data and creates a writable
+// TestPreparePreservesDirectory checks that Prepare preserves live data and creates a writable
 // container cache directory.
-func TestPrepareReplacesDirectory(t *testing.T) {
+func TestPreparePreservesDirectory(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "containers")
 	manager := newTestManager(t, root, func() ([]*corev1.Pod, error) { return nil, nil })
 	target, err := manager.Prepare("pod-uid", "main")
@@ -56,7 +56,7 @@ func TestPrepareReplacesDirectory(t *testing.T) {
 	_, err = manager.Prepare("pod-uid", "main")
 	require.NoError(t, err)
 	_, statErr := os.Stat(filepath.Join(target, "old.cache"))
-	require.ErrorIs(t, statErr, os.ErrNotExist)
+	require.NoError(t, statErr)
 	info, err := os.Stat(target)
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o777), info.Mode().Perm())
@@ -310,8 +310,9 @@ func TestCacheFilesystemPermissionErrors(t *testing.T) {
 		other, err := manager.Prepare("b", "main")
 		require.NoError(t, err)
 		_, err = manager.Prepare("a", "main")
-		require.ErrorContains(t, err, "remove previous vGPU cache directory")
-		require.ErrorIs(t, err, os.ErrPermission)
+		require.NoError(t, err)
+		require.FileExists(t, filepath.Join(blocked, "cache"))
+		require.NoError(t, os.Chmod(blocked, 0o500))
 		require.ErrorIs(t, manager.scan(), os.ErrPermission)
 		require.FileExists(t, filepath.Join(blocked, "cache"))
 		require.NoDirExists(t, other)
@@ -787,4 +788,37 @@ func TestTerminatingPodRetainedUntilDeletion(t *testing.T) {
 	pods = nil
 	require.NoError(t, m.scan())
 	require.NoDirExists(t, path)
+}
+
+func TestPrepareAndCacheNameAreIdempotent(t *testing.T) {
+	m := newTestManager(t, t.TempDir(), func() ([]*corev1.Pod, error) {
+		return []*corev1.Pod{{ObjectMeta: metav1.ObjectMeta{UID: "active"}}}, nil
+	})
+	path, err := m.Prepare("active", "gpu")
+	require.NoError(t, err)
+	name, err := CacheFileName(path)
+	require.NoError(t, err)
+	require.Equal(t, "shared.cache", name)
+	require.NoError(t, os.WriteFile(filepath.Join(path, name), []byte("live usage"), 0600))
+	_, err = m.Prepare("active", "gpu")
+	require.NoError(t, err)
+	after, err := CacheFileName(path)
+	require.NoError(t, err)
+	require.Equal(t, name, after)
+	content, err := os.ReadFile(filepath.Join(path, name))
+	require.NoError(t, err)
+	require.Equal(t, "live usage", string(content))
+	require.NoError(t, os.WriteFile(filepath.Join(path, "legacy.cache"), nil, 0600))
+	_, err = CacheFileName(path)
+	require.ErrorContains(t, err, "multiple cache")
+}
+
+func TestPrepareRejectsSymlinkEntry(t *testing.T) {
+	root := t.TempDir()
+	target := t.TempDir()
+	require.NoError(t, os.Symlink(target, filepath.Join(root, "pod_gpu")))
+	m := newTestManager(t, root, func() ([]*corev1.Pod, error) { return nil, nil })
+	_, err := m.Prepare("pod", "gpu")
+	require.ErrorContains(t, err, "not a real directory")
+	require.DirExists(t, target)
 }
