@@ -52,8 +52,9 @@ func (h *hardwareMIG) Export(ctx context.Context) (config.MigPartedSpec, error) 
 	if err != nil {
 		return current, err
 	}
-	if err := yaml.UnmarshalStrict(data, &current); err != nil {
-		return current, fmt.Errorf("parse MIG export: %w", err)
+	current, err = decodeMIGExport(data)
+	if err != nil {
+		return current, err
 	}
 	count, err := util.GetDeviceNums()
 	if err != nil {
@@ -326,4 +327,50 @@ func (plugin *nvidiaDevicePlugin) GenerateMigTemplate(model string, index int, d
 		return -1, false, fmt.Errorf("MIG geometry %s not found for %s", group, model)
 	}
 	return -1, false, fmt.Errorf("no MIG geometry model matches %s", model)
+}
+
+// mig-parted compresses identical GPU entries to devices: all. Decode that
+// documented scalar separately from the scheduler/config's explicit index lists.
+func decodeMIGExport(data []byte) (config.MigPartedSpec, error) {
+	var raw struct {
+		Version string `yaml:"version"`
+		Configs map[string][]struct {
+			Filter   interface{}      `yaml:"device-filter"`
+			Devices  interface{}      `yaml:"devices"`
+			Enabled  bool             `yaml:"mig-enabled"`
+			Profiles map[string]int32 `yaml:"mig-devices"`
+		} `yaml:"mig-configs"`
+	}
+	result := config.MigPartedSpec{}
+	if err := yaml.UnmarshalStrict(data, &raw); err != nil {
+		return result, fmt.Errorf("parse MIG export: %w", err)
+	}
+	result.Version = raw.Version
+	result.MigConfigs = map[string]config.MigConfigSpecSlice{}
+	for name, entries := range raw.Configs {
+		for _, entry := range entries {
+			normalized := config.MigConfigSpec{DeviceFilter: entry.Filter, MigEnabled: entry.Enabled, MigDevices: entry.Profiles}
+			switch devices := entry.Devices.(type) {
+			case string:
+				if devices != "all" {
+					return result, fmt.Errorf("unknown MIG device selection %q", devices)
+				}
+			case []interface{}:
+				if len(devices) == 0 {
+					return result, fmt.Errorf("empty MIG device selection")
+				}
+				for _, value := range devices {
+					index, ok := value.(int)
+					if !ok || index < 0 || int64(index) > 2147483647 {
+						return result, fmt.Errorf("invalid MIG GPU index %v", value)
+					}
+					normalized.Devices = append(normalized.Devices, int32(index))
+				}
+			default:
+				return result, fmt.Errorf("missing or invalid MIG device selection")
+			}
+			result.MigConfigs[name] = append(result.MigConfigs[name], normalized)
+		}
+	}
+	return result, nil
 }

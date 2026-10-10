@@ -179,3 +179,18 @@ func TestProcessMIGConfigsRejectsAmbiguousState(t *testing.T) {
 	entries[0].MigDevices["1g.5gb"] = 1
 	require.Equal(t, int32(2), entries[1].MigDevices["1g.5gb"], "per-GPU maps must be independent")
 }
+
+func TestDecodeMIGPartedAllAndExplicitDevices(t *testing.T) {
+	for _, selection := range []string{"all", "[0, 1]"} {
+		raw, err := decodeMIGExport([]byte("version: v1\nmig-configs:\n  current:\n  - devices: " + selection + "\n    mig-enabled: true\n    mig-devices: {1g.5gb: 2}\n"))
+		require.NoError(t, err)
+		normalized, err := (&nvidiaDevicePlugin{}).processMigConfigs(raw.MigConfigs, 2)
+		require.NoError(t, err)
+		require.Len(t, normalized, 2)
+		require.Equal(t, []int32{1}, normalized[1].Devices)
+	}
+	for _, selection := range []string{"invalid", "[]", "[-1]", "[x]", "null"} {
+		_, err := decodeMIGExport([]byte("version: v1\nmig-configs:\n  current:\n  - devices: " + selection + "\n"))
+		require.Error(t, err)
+	}
+}
