@@ -339,22 +339,8 @@ func TestUnmarshalReplicatedResource(t *testing.T) {
 				Rename:   NoErrorNewResourceName("valid-shared"),
 			},
 		},
-		{
-			input: `{
-				"name": "$invalid$",
-				"replicas": 2,
-				"rename": "valid-shared"
-			}`,
-			err: true,
-		},
-		{
-			input: `{
-				"name": "valid",
-				"replicas": 2,
-				"rename": "$invalid$"
-			}`,
-			err: true,
-		},
+		// Invalid resource name cases were removed: NewResourceName no longer
+		// validates the name format since resources moved to volcano.sh/.
 	}
 
 	for i, tc := range testCases {
@@ -438,17 +424,8 @@ func TestUnmarshalReplicatedResources(t *testing.T) {
 				},
 			},
 		},
-		{
-			input: `{
-				"resources": [
-					{
-						"name": "$invalid$",
-						"replicas": 2
-					}
-				]
-			}`,
-			err: true,
-		},
+		// Invalid resource name cases were removed: NewResourceName no longer
+		// validates the name format since resources moved to volcano.sh/.
 	}
 
 	for i, tc := range testCases {

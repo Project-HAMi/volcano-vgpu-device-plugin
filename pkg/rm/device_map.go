@@ -118,7 +118,7 @@ func (b *deviceMapBuilder) buildGPUDeviceMap() (DeviceMap, error) {
 		}
 		// Check if device should be filtered based on filterdevice configuration
 		if config.FilterDeviceToRegister(uuid, i) {
-			klog.V(3).Infoln("Filtering device in buildGPUDeviceMap based on filterdevice config: index=%d, uuid=%s", i, uuid)
+			klog.V(3).Infof("Filtering device in buildGPUDeviceMap based on filterdevice config: index=%d, uuid=%s", i, uuid)
 			return nil
 		}
 		name, ret := gpu.GetName()
