@@ -21,6 +21,7 @@ import (
 
 	"github.com/NVIDIA/go-nvlib/pkg/nvlib/device"
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type NvidiaConfig struct {
@@ -144,15 +145,20 @@ type FilterDevice struct {
 }
 
 type DevicePluginConfigs struct {
-	Nodeconfig []struct {
-		Name                string        `json:"name"`
-		OperatingMode       string        `json:"operatingmode"`
-		Devicememoryscaling float64       `json:"devicememoryscaling"`
-		Devicecorescaling   float64       `json:"devicecorescaling"`
-		Devicesplitcount    uint          `json:"devicesplitcount"`
-		Migstrategy         string        `json:"migstrategy"`
-		FilterDevice        *FilterDevice `json:"filterdevices"`
-	} `json:"nodeconfig"`
+	Nodeconfig []NodeConfig `json:"nodeconfig"`
+}
+
+// NodeConfig selects per-node device-plugin settings by node name or labels.
+// Exactly one selector form must be set. Name "*" is the explicit fallback.
+type NodeConfig struct {
+	Name                string                `json:"name,omitempty"`
+	NodeLabelSelector   *metav1.LabelSelector `json:"nodelabelselector,omitempty"`
+	OperatingMode       string                `json:"operatingmode,omitempty"`
+	Devicememoryscaling *float64              `json:"devicememoryscaling,omitempty"`
+	Devicecorescaling   *float64              `json:"devicecorescaling,omitempty"`
+	Devicesplitcount    *uint                 `json:"devicesplitcount,omitempty"`
+	Migstrategy         string                `json:"migstrategy,omitempty"`
+	FilterDevice        *FilterDevice         `json:"filterdevices,omitempty"`
 }
 
 var (

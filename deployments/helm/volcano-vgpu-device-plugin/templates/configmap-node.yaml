@@ -13,15 +13,20 @@ data:
         "nodeconfig": [
           {{- range $index, $config := .Values.nodeConfig.configs }}
           {{- if $index }},{{ end }}
+          {{- $filter := default dict $config.filterdevices }}
             {
-                "name": {{ $config.name | quote }},
-                "operatingmode": {{ $config.operatingmode | quote }},
-                "devicememoryscaling": {{ $config.devicememoryscaling }},
-                "devicesplitcount": {{ $config.devicesplitcount }},
-                "migstrategy": {{ $config.migstrategy | quote }},
+                "name": {{ if hasKey $config "name" }}{{ $config.name | toJson }}{{ else }}""{{ end }},
+                {{- with $config.nodelabelselector }}
+                "nodelabelselector": {{ . | toJson }},
+                {{- end }}
+                "operatingmode": {{ if hasKey $config "operatingmode" }}{{ $config.operatingmode | toJson }}{{ else }}""{{ end }},
+                "devicememoryscaling": {{ if hasKey $config "devicememoryscaling" }}{{ $config.devicememoryscaling }}{{ else }}0{{ end }},
+                "devicecorescaling": {{ if hasKey $config "devicecorescaling" }}{{ $config.devicecorescaling }}{{ else }}0{{ end }},
+                "devicesplitcount": {{ if hasKey $config "devicesplitcount" }}{{ $config.devicesplitcount }}{{ else }}0{{ end }},
+                "migstrategy": {{ if hasKey $config "migstrategy" }}{{ $config.migstrategy | toJson }}{{ else }}""{{ end }},
                 "filterdevices": {
-                  "uuid": {{ $config.filterdevices.uuid | toJson }},
-                  "index": {{ $config.filterdevices.index | toJson }}
+                  "uuid": {{ default (list) $filter.uuid | toJson }},
+                  "index": {{ default (list) $filter.index | toJson }}
                 }
             }
           {{- end }}
