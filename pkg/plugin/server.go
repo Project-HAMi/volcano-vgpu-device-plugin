@@ -492,6 +492,10 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 
 			currentCtr, devreq := planned[idx].Container, planned[idx].Devices
 			klog.V(4).InfoS("Selected Pod deviceAllocateFromAnnotation=", "request", devreq)
+			if err := plugin.validateRegisteredVolcanoGPUs(devreq); err != nil {
+				ops.Failed(nodeName, current)
+				return nil, err
+			}
 			response, err := plugin.getAllocateResponse(plugin.GetContainerDeviceStrArray(devreq))
 			if err != nil {
 				ops.Failed(nodeName, current)
@@ -741,6 +745,27 @@ func (plugin *nvidiaDevicePlugin) uniqueDeviceIDsFromAnnotatedDeviceIDs(ids []st
 		uniqueIDs = append(uniqueIDs, id)
 	}
 	return uniqueIDs
+}
+
+// Ordinary GPU IDs in the scheduler annotation must be present among this
+// plugin's registered physical GPUs. Geometry placeholders are resolved by the
+// MIG path before their eventual instance IDs can be checked there.
+func (plugin *nvidiaDevicePlugin) validateRegisteredVolcanoGPUs(devices util.ContainerDevices) error {
+	registered := make(map[string]bool)
+	for _, device := range plugin.rm.Devices() {
+		if device != nil {
+			registered[device.GetUUID()] = true
+		}
+	}
+	for _, device := range devices {
+		if strings.Contains(device.UUID, "[") {
+			continue
+		}
+		if !registered[device.UUID] {
+			return fmt.Errorf("Volcano-assigned GPU %q is not registered on this node", device.UUID)
+		}
+	}
+	return nil
 }
 
 func (plugin *nvidiaDevicePlugin) apiDevices() ([]*pluginapi.Device, error) {

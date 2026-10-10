@@ -243,6 +243,13 @@ func PlanDeviceRequests(dtype string, pod v1.Pod, requestSizes []int) ([]Planned
 	if raw == "" || EncodePodDevices(devices) != raw || len(devices) > len(pod.Spec.Containers) {
 		return nil, "", fmt.Errorf("invalid device allocation annotation for pod %s/%s", pod.Namespace, pod.Name)
 	}
+	for _, containerDevices := range devices {
+		for _, device := range containerDevices {
+			if device.UUID == "" || device.Type == "" || device.Usedmem < 0 || device.Usedcores < 0 {
+				return nil, "", fmt.Errorf("invalid device allocation annotation for pod %s/%s: empty identity or negative limit", pod.Namespace, pod.Name)
+			}
+		}
+	}
 
 	planned := make([]PlannedDeviceRequest, 0, len(requestSizes))
 	for _, size := range requestSizes {

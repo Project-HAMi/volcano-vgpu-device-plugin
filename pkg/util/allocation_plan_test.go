@@ -59,3 +59,36 @@ func TestPlanDeviceRequestsRejectsMismatchWithoutConsumption(t *testing.T) {
 	_, _, err = PlanDeviceRequests(NvidiaGPUDevice, pod, []int{1})
 	require.ErrorContains(t, err, "invalid device allocation annotation")
 }
+
+func TestPlanDeviceRequestsRejectsInvalidLimitsAndIdentity(t *testing.T) {
+	for _, annotation := range []string{
+		",NVIDIA,1000,20:",
+		"GPU-A,NVIDIA,-1,20:",
+		"GPU-A,NVIDIA,1000,-1:",
+	} {
+		t.Run(annotation, func(t *testing.T) {
+			pod := corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{AssignedIDsToAllocateAnnotations: annotation}},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "worker"}}},
+			}
+			_, _, err := PlanDeviceRequests(NvidiaGPUDevice, pod, []int{1})
+			require.ErrorContains(t, err, "invalid device allocation annotation")
+			require.Equal(t, annotation, pod.Annotations[AssignedIDsToAllocateAnnotations])
+		})
+	}
+}
+
+func TestGetOldestPodRequiresExactRemainingTotalDeviceCount(t *testing.T) {
+	// The current timestamp lock protocol has no Pod identity in Allocate.
+	// One-container-at-a-time kubelet calls for a two-GPU Pod cannot match it.
+	pod := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+			AssignedNodeAnnotations:          "node-a",
+			AssignedIDsToAllocateAnnotations: "GPU-A,NVIDIA,1000,20:;GPU-B,NVIDIA,1000,20:",
+		}},
+		Spec:   corev1.PodSpec{NodeName: "node-a", Containers: []corev1.Container{{Name: "first"}, {Name: "second"}}},
+		Status: corev1.PodStatus{Phase: corev1.PodPending},
+	}
+	require.Nil(t, getOldestPod([]corev1.Pod{pod}, "node-a", 1))
+	require.NotNil(t, getOldestPod([]corev1.Pod{pod}, "node-a", 2))
+}

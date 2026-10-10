@@ -71,9 +71,15 @@ func newVolcanoTestPlugin(t *testing.T, pod *corev1.Pod) (*nvidiaDevicePlugin, *
 	})
 	ops := &testPodOps{pod: pod}
 	return &nvidiaDevicePlugin{
-		rm: &rm.ResourceManagerMock{ResourceFunc: func() spec.ResourceName {
-			return spec.ResourceName(util.ResourceName)
-		}},
+		rm: &rm.ResourceManagerMock{
+			ResourceFunc: func() spec.ResourceName { return spec.ResourceName(util.ResourceName) },
+			DevicesFunc: func() rm.Devices {
+				return rm.Devices{
+					"GPU-A::0": {Device: pluginapi.Device{ID: "GPU-A::0"}, Index: "0"},
+					"GPU-B::0": {Device: pluginapi.Device{ID: "GPU-B::0"}, Index: "1"},
+				}
+			},
+		},
 		config: &spec.Config{Flags: spec.Flags{CommandLineFlags: spec.CommandLineFlags{
 			Plugin: &spec.PluginCommandLineFlags{DeviceIDStrategy: ptr(spec.DeviceIDStrategyUUID)},
 		}}},
@@ -153,6 +159,46 @@ func TestAllocateVolcanoAnnotationWriteFailure(t *testing.T) {
 	require.Equal(t, 1, ops.failed)
 	require.Zero(t, ops.succeeded)
 	require.Equal(t, "GPU-A,NVIDIA,1000,20:", pod.Annotations[util.AssignedIDsToAllocateAnnotations])
+}
+
+func TestAllocateVolcanoRejectsUnregisteredGPU(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+			util.AssignedIDsToAllocateAnnotations: "GPU-C,NVIDIA,1000,20:",
+		}},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "worker"}}},
+	}
+	plugin, ops := newVolcanoTestPlugin(t, pod)
+	response, err := plugin.Allocate(context.Background(), &pluginapi.AllocateRequest{ContainerRequests: []*pluginapi.ContainerAllocateRequest{
+		{DevicesIds: []string{"replica-0"}},
+	}})
+	require.Nil(t, response)
+	require.ErrorContains(t, err, `GPU-C" is not registered on this node`)
+	require.Nil(t, ops.patched)
+	require.Equal(t, "GPU-C,NVIDIA,1000,20:", pod.Annotations[util.AssignedIDsToAllocateAnnotations])
+}
+
+func TestAllocateVolcanoRejectsInvalidAnnotationWithoutConsumption(t *testing.T) {
+	for _, annotation := range []string{
+		",NVIDIA,1000,20:",
+		"GPU-A,NVIDIA,-1,20:",
+		"GPU-A,NVIDIA,1000,-1:",
+	} {
+		t.Run(annotation, func(t *testing.T) {
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{util.AssignedIDsToAllocateAnnotations: annotation}},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "worker"}}},
+			}
+			plugin, ops := newVolcanoTestPlugin(t, pod)
+			response, err := plugin.Allocate(context.Background(), &pluginapi.AllocateRequest{ContainerRequests: []*pluginapi.ContainerAllocateRequest{
+				{DevicesIds: []string{"replica-0"}},
+			}})
+			require.Nil(t, response)
+			require.ErrorContains(t, err, "invalid device allocation annotation")
+			require.Nil(t, ops.patched)
+			require.Equal(t, annotation, pod.Annotations[util.AssignedIDsToAllocateAnnotations])
+		})
+	}
 }
 
 type failingNVML struct{ nvml.Interface }
