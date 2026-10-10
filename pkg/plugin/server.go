@@ -17,16 +17,15 @@
 package plugin
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	cdiapi "tags.cncf.io/container-device-interface/pkg/cdi"
@@ -43,7 +42,6 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"gopkg.in/yaml.v2"
 
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
@@ -95,6 +93,8 @@ type nvidiaDevicePlugin struct {
 	mps mpsOptions
 
 	migCurrent config.MigPartedSpec
+	migMutex   sync.Mutex
+	migBackend migBackend
 
 	// entryLimitWarned keeps the device count warning to one line per plugin,
 	// since apiDevices runs again on every health event. Only ListAndWatch
@@ -162,13 +162,13 @@ func (plugin *nvidiaDevicePlugin) Devices() rm.Devices {
 func (plugin *nvidiaDevicePlugin) Start(kubeletSocket string) error {
 	plugin.initialize()
 
-	deviceNumbers, err := util.GetDeviceNums()
+	_, err := util.GetDeviceNums()
 	if err != nil {
-		return err
+		return errors.Join(err, plugin.Stop())
 	}
 
 	if err := plugin.mps.waitForDaemon(); err != nil {
-		return fmt.Errorf("error waiting for MPS daemon: %w", err)
+		return errors.Join(fmt.Errorf("error waiting for MPS daemon: %w", err), plugin.Stop())
 	}
 
 	if err := plugin.Serve(); err != nil {
@@ -185,35 +185,24 @@ func (plugin *nvidiaDevicePlugin) Start(kubeletSocket string) error {
 	}
 	klog.Infof("Registered device plugin for '%s' with Kubelet", plugin.rm.Resource())
 
+	stop, health := plugin.stop, plugin.health
 	go func() {
 		// TODO: add MPS health check
-		err := plugin.rm.CheckHealth(plugin.stop, plugin.health)
+		err := plugin.rm.CheckHealth(stop, health)
 		if err != nil {
 			klog.Errorf("Failed to start health check: %v; continuing with health checks disabled", err)
 		}
 	}()
 	if plugin.rm.Resource() == spec.ResourceName(util.ResourceName) {
 		if config.Mode == "mig" {
-			cmd := exec.Command("nvidia-mig-parted", "export")
-			var stdout, stderr bytes.Buffer
-			cmd.Stdout = &stdout
-			cmd.Stderr = &stderr
-			err := cmd.Run()
+			current, err := plugin.migOperations().Export(plugin.ctx)
 			if err != nil {
-				klog.Fatalf("nvidia-mig-parted failed with %s\n", err)
+				return errors.Join(fmt.Errorf("load MIG hardware state: %w", err), plugin.Stop())
 			}
-			outStr := stdout.Bytes()
-			yaml.Unmarshal(outStr, &plugin.migCurrent)
-			os.WriteFile("/tmp/migconfig.yaml", outStr, os.ModePerm)
-			hamiInitMigConfig, err := plugin.processMigConfigs(plugin.migCurrent.MigConfigs, deviceNumbers)
-			if err != nil {
-				klog.Infof("no device in node:%v", err)
-			}
-			plugin.migCurrent.MigConfigs["current"] = hamiInitMigConfig
-			klog.Infoln("Mig export", plugin.migCurrent)
+			plugin.migCurrent = current
 		}
 
-		go plugin.WatchAndRegister()
+		go plugin.WatchAndRegister(plugin.stop)
 	}
 	return nil
 }
@@ -424,7 +413,12 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 				return &pluginapi.AllocateResponse{}, errors.New("device number not matched")
 			}
 
-			response, err := plugin.getAllocateResponse(plugin.GetContainerDeviceStrArray(devreq))
+			deviceIDs, err := plugin.GetContainerDeviceStrArray(devreq)
+			if err != nil {
+				util.PodAllocationFailed(nodeName, current)
+				return nil, err
+			}
+			response, err := plugin.getAllocateResponse(deviceIDs)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get allocate response: %v", err)
 			}
@@ -799,20 +793,28 @@ func (plugin *nvidiaDevicePlugin) apiDeviceSpecs(devRoot string, ids []string) [
 	return specs
 }
 
-func (plugin *nvidiaDevicePlugin) WatchAndRegister() {
-	klog.Infof("into WatchAndRegister")
+func (plugin *nvidiaDevicePlugin) WatchAndRegister(stop <-chan interface{}) {
 	for {
-		if len(config.Mode) == 0 {
-			klog.V(5).Info("register skipped, waiting for device config to be loaded")
-			time.Sleep(time.Second * 2)
-			continue
+		select {
+		case <-stop:
+			return
+		default:
 		}
-		err := RegisterInAnnotation(plugin.rm.Devices().GetPluginDevices())
-		if err != nil {
-			klog.Errorf("register error, %v", err)
-			time.Sleep(time.Second * 5)
-		} else {
-			time.Sleep(time.Second * 30)
+		delay := 2 * time.Second
+		if config.Mode != "" {
+			if err := RegisterInAnnotation(plugin.rm.Devices().GetPluginDevices()); err != nil {
+				klog.Errorf("register error: %v", err)
+				delay = 5 * time.Second
+			} else {
+				delay = 30 * time.Second
+			}
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-stop:
+			timer.Stop()
+			return
+		case <-timer.C:
 		}
 	}
 }
@@ -837,140 +839,6 @@ func containsDevice(target int, devices []int32) bool {
 	return false
 }
 
-func (plugin *nvidiaDevicePlugin) ApplyMigTemplate() {
-	data, err := yaml.Marshal(plugin.migCurrent)
-	if err != nil {
-		klog.Error("marshal failed", err.Error())
-	}
-	klog.Infoln("Applying data=", string(data))
-	os.WriteFile("/tmp/migconfig.yaml", data, os.ModePerm)
-	cmd := exec.Command("nvidia-mig-parted", "apply", "-f", "/tmp/migconfig.yaml")
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err = cmd.Run()
-	if err != nil {
-		klog.Fatalf("nvidia-mig-parted failed with %s\n", err)
-	}
-	outStr := stdout.String()
-	klog.Infoln("Mig apply", outStr)
-}
-
-func (plugin *nvidiaDevicePlugin) GetContainerDeviceStrArray(c util.ContainerDevices) []string {
-	tmp := []string{}
-	needsreset := false
-	position := 0
-	for _, val := range c {
-		if !strings.Contains(val.UUID, "[") {
-			tmp = append(tmp, val.UUID)
-		} else {
-			devtype, devindex := util.GetIndexAndTypeFromUUID(val.UUID)
-			position, needsreset = plugin.GenerateMigTemplate(devtype, devindex, val)
-			if needsreset {
-				plugin.ApplyMigTemplate()
-				if plugin.deviceListStrategies.Includes(spec.DeviceListStrategyVolumeMounts) ||
-					plugin.deviceListStrategies.Includes(spec.DeviceListStrategyCDIAnnotations) ||
-					plugin.deviceListStrategies.Includes(spec.DeviceListStrategyCDICRI) {
-					klog.V(3).Infoln("generate CDI spec file")
-					const (
-						maxTryTimes      = 5
-						waitTimeInterval = 5 * time.Second
-						specFilePath     = "/var/run/cdi/k8s.device-plugin.nvidia.com-gpu.json"
-						kind             = "k8s.device-plugin.nvidia.com/gpu"
-					)
-					for i := 0; i < maxTryTimes; i++ {
-						if err := util.CreateSpecFile(specFilePath); err != nil {
-							klog.Warningf("failed to create CDI spec file: %v", err)
-						} else {
-							klog.Infof("createSpecFile ok. file path %s", specFilePath)
-						}
-						if err := util.CheckCDISpecFile(specFilePath, kind); err != nil {
-							klog.Warningf("check CDI spec file failed. %v", err)
-							if i == maxTryTimes-1 {
-								klog.Fatalf("exceed the max trytime %d", maxTryTimes)
-							} else {
-								time.Sleep(waitTimeInterval)
-								klog.Warningf("try to create CDI spec file again. try times: %d", i)
-								continue
-							}
-						}
-						klog.Infof("check CDI spec file ok")
-						break
-					}
-				}
-			}
-			tmp = append(tmp, util.GetMigUUIDFromIndex(val.UUID, position))
-		}
-	}
-	klog.V(3).Infoln("mig current=", plugin.migCurrent, ":", needsreset, "position=", position, "uuid lists", tmp)
-	return tmp
-}
-
-func (plugin *nvidiaDevicePlugin) GenerateMigTemplate(devtype string, devindex int, val util.ContainerDevice) (int, bool) {
-	needsreset := false
-	position := -1 // Initialize to an invalid position
-
-	for _, migTemplate := range config.SchedulerConfig.MigGeometriesList {
-		if containsModel(devtype, migTemplate.Models) {
-			klog.InfoS("type found", "Type", devtype, "Models", strings.Join(migTemplate.Models, ", "))
-
-			templateGroupName, pos, err := util.ExtractMigTemplatesFromUUID(val.UUID)
-			if err != nil {
-				klog.ErrorS(err, "failed to extract template index from UUID", "UUID", val.UUID)
-				return -1, false
-			}
-
-			templateIdx := -1
-			for i, migTemplateEntry := range migTemplate.Geometries {
-				if migTemplateEntry.Group == templateGroupName {
-					templateIdx = i
-					break
-				}
-			}
-
-			if templateIdx < 0 || templateIdx >= len(migTemplate.Geometries) {
-				klog.ErrorS(nil, "invalid template index extracted from UUID", "UUID", val.UUID, "Index", templateIdx)
-				return -1, false
-			}
-
-			position = pos
-
-			v := migTemplate.Geometries[templateIdx].Instances
-
-			for migidx, migpartedDev := range plugin.migCurrent.MigConfigs["current"] {
-				if containsDevice(devindex, migpartedDev.Devices) {
-					for _, migTemplateEntry := range v {
-						currentCount, ok := migpartedDev.MigDevices[migTemplateEntry.Name]
-						expectedCount := migTemplateEntry.Count
-
-						if !ok || currentCount != expectedCount {
-							needsreset = true
-							klog.InfoS("updated mig device count", "Template", v)
-						} else {
-							klog.InfoS("incremented mig device count", "TemplateName", migTemplateEntry.Name, "Count", currentCount+1)
-						}
-					}
-
-					if needsreset {
-						for k := range plugin.migCurrent.MigConfigs["current"][migidx].MigDevices {
-							delete(plugin.migCurrent.MigConfigs["current"][migidx].MigDevices, k)
-						}
-
-						for _, migTemplateEntry := range v {
-							plugin.migCurrent.MigConfigs["current"][migidx].MigDevices[migTemplateEntry.Name] = migTemplateEntry.Count
-							plugin.migCurrent.MigConfigs["current"][migidx].MigEnabled = true
-						}
-					}
-					break
-				}
-			}
-			break
-		}
-	}
-
-	return position, needsreset
-}
-
 // Helper function to deepcopy new mig spec
 func deepCopyMigConfig(src config.MigConfigSpec) config.MigConfigSpec {
 	dst := src
@@ -993,6 +861,30 @@ func (plugin *nvidiaDevicePlugin) processMigConfigs(migConfigs map[string]config
 	}
 	if deviceCount <= 0 {
 		return nil, fmt.Errorf("deviceCount must be positive")
+	}
+
+	if len(migConfigs["current"]) == 0 {
+		return nil, fmt.Errorf("MIG export has no current configuration")
+	}
+	seen := map[int32]bool{}
+	for _, entry := range migConfigs["current"] {
+		if entry.DeviceFilter != nil {
+			return nil, fmt.Errorf("filtered MIG exports are not supported")
+		}
+		if len(entry.Devices) == 0 && len(migConfigs["current"]) != 1 {
+			return nil, fmt.Errorf("ambiguous all-device MIG configuration")
+		}
+		for _, index := range entry.Devices {
+			if index < 0 || int(index) >= deviceCount || seen[index] {
+				return nil, fmt.Errorf("invalid or duplicate MIG GPU index %d", index)
+			}
+			seen[index] = true
+		}
+		for profile, count := range entry.MigDevices {
+			if profile == "" || count < 0 {
+				return nil, fmt.Errorf("invalid MIG profile count")
+			}
+		}
 	}
 
 	transformConfigs := func() (config.MigConfigSpecSlice, error) {

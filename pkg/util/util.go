@@ -17,7 +17,6 @@ limitations under the License.
 package util
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -554,54 +553,45 @@ func GetDeviceNums() (int, error) {
 	return count, nil
 }
 
-func GetIndexAndTypeFromUUID(uuid string) (string, int) {
+// GetIndexAndTypeFromUUID resolves the physical GPU without terminating the process.
+func GetIndexAndTypeFromUUID(uuid string) (string, int, error) {
 	originuuid := strings.Split(uuid, "[")[0]
 	ndev, ret := config.Nvml().DeviceGetHandleByUUID(originuuid)
 	if ret != nvml.SUCCESS {
-		klog.Error("nvml get handlebyuuid error ret=", ret)
-		panic(0)
+		return "", -1, fmt.Errorf("get GPU %s: %v", originuuid, ret)
 	}
 	model, ret := ndev.GetName()
 	if ret != nvml.SUCCESS {
-		klog.Error("nvml get name error ret=", ret)
-		panic(0)
+		return "", -1, fmt.Errorf("get GPU model: %v", ret)
 	}
 	index, ret := ndev.GetIndex()
 	if ret != nvml.SUCCESS {
-		klog.Error("nvml get index error ret=", ret)
-		panic(0)
+		return "", -1, fmt.Errorf("get GPU index: %v", ret)
 	}
-	return model, index
+	return model, index, nil
 }
 
-func GetMigUUIDFromIndex(uuid string, idx int) string {
+func GetMigUUIDFromIndex(uuid string, idx int) (string, error) {
+	if idx < 0 {
+		return "", fmt.Errorf("invalid MIG slot %d", idx)
+	}
 	originuuid := strings.Split(uuid, "[")[0]
 	ndev, ret := config.Nvml().DeviceGetHandleByUUID(originuuid)
 	if ret != nvml.SUCCESS {
-		klog.Error(`nvml get device uuid error ret=`, ret)
-		panic(0)
+		return "", fmt.Errorf("get GPU %s: %v", originuuid, ret)
 	}
 	migdev, ret := config.Nvml().DeviceGetMigDeviceHandleByIndex(ndev, idx)
 	if ret != nvml.SUCCESS {
-		klog.Error("nvml get mig dev error ret=", ret, ",idx=", idx, "using nvidia-smi -L for query")
-		cmd := exec.Command("nvidia-smi", "-L")
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-		err := cmd.Run()
-		if err != nil {
-			klog.Fatalf("nvidia-smi -L failed with %s\n", err)
-		}
-		outStr := stdout.String()
-		uuid := GetMigUUIDFromSmiOutput(outStr, originuuid, idx)
-		return uuid
+		return "", fmt.Errorf("get MIG slot %d on %s: %v", idx, originuuid, ret)
 	}
 	res, ret := migdev.GetUUID()
 	if ret != nvml.SUCCESS {
-		klog.Error(`nvml get mig uuid error ret=`, ret)
-		panic(0)
+		return "", fmt.Errorf("get MIG UUID: %v", ret)
 	}
-	return res
+	if res == "" {
+		return "", fmt.Errorf("empty MIG UUID for %s slot %d", originuuid, idx)
+	}
+	return res, nil
 }
 
 func GetMigUUIDFromSmiOutput(output string, uuid string, idx int) string {
@@ -636,36 +626,21 @@ func GetMigUUIDFromSmiOutput(output string, uuid string, idx int) string {
 	return ""
 }
 
-// Enhanced ExtractMigTemplatesFromUUID with error handling.
+// ExtractMigTemplatesFromUUID preserves Volcano's GPU-UUID[group-position] encoding.
 func ExtractMigTemplatesFromUUID(uuid string) (string, int, error) {
-	parts := strings.Split(uuid, "[")
-	if len(parts) < 2 {
-		return "", -1, fmt.Errorf("invalid UUID format: missing '[' delimiter")
+	origin, body, ok := strings.Cut(uuid, "[")
+	if !ok || origin == "" || !strings.HasSuffix(body, "]") || strings.Count(uuid, "[") != 1 || strings.Count(uuid, "]") != 1 {
+		return "", -1, fmt.Errorf("invalid MIG identifier %q", uuid)
 	}
-
-	tmp := parts[1]
-	parts = strings.Split(tmp, "]")
-	if len(parts) < 2 {
-		return "", -1, fmt.Errorf("invalid UUID format: missing ']' delimiter")
+	parts := strings.Split(strings.TrimSuffix(body, "]"), "-")
+	if len(parts) != 2 || parts[0] == "" {
+		return "", -1, fmt.Errorf("invalid MIG group and slot in %q", uuid)
 	}
-
-	tmp = parts[0]
-	parts = strings.Split(tmp, "-")
-	if len(parts) < 2 {
-		return "", -1, fmt.Errorf("invalid UUID format: missing '-' delimiter")
+	position, err := strconv.Atoi(parts[1])
+	if err != nil || position < 0 {
+		return "", -1, fmt.Errorf("invalid MIG slot in %q", uuid)
 	}
-
-	templateGroupName := strings.TrimSpace(parts[0])
-	if len(templateGroupName) == 0 {
-		return "", -1, fmt.Errorf("invalid UUID format: missing template group name")
-	}
-
-	pos, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return "", -1, fmt.Errorf("invalid position: %v", err)
-	}
-
-	return templateGroupName, pos, nil
+	return parts[0], position, nil
 }
 
 func LoadNvidiaConfig(c *cli.Context) *config.NvidiaConfig {
