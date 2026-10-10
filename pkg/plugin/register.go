@@ -36,7 +36,10 @@ var (
 )
 
 func RegisterInAnnotation(devs []*pluginapi.Device) error {
-	devices := ConvertDeviceInfo(devs)
+	devices, err := ConvertDeviceInfo(devs)
+	if err != nil {
+		return err
+	}
 	annos := make(map[string]string)
 	node, err := util.GetNode(*nodeName)
 	if err != nil {
@@ -65,25 +68,32 @@ func RegisterInAnnotation(devs []*pluginapi.Device) error {
 	return err
 }
 
-func ConvertDeviceInfo(devs []*pluginapi.Device) *[]*util.DeviceInfo {
+func ConvertDeviceInfo(devs []*pluginapi.Device) (*[]*util.DeviceInfo, error) {
+	return convertDeviceInfo(devs, config.Nvml())
+}
+
+func convertDeviceInfo(devs []*pluginapi.Device, nvmllib nvml.Interface) (*[]*util.DeviceInfo, error) {
+	if config.GPUMemoryFactor == 0 {
+		return nil, fmt.Errorf("gpuMemoryFactor must be positive")
+	}
 	res := make([]*util.DeviceInfo, 0, len(devs))
 	for _, dev := range devs {
-		ndev, ret := config.Nvml().DeviceGetHandleByUUID(dev.ID)
+		if dev == nil {
+			return nil, fmt.Errorf("cannot register nil device")
+		}
+		ndev, ret := nvmllib.DeviceGetHandleByUUID(dev.ID)
 		if ret != nvml.SUCCESS {
-			fmt.Println("nvml new device by uuid error id=", dev.ID)
-			panic(ret)
+			return nil, fmt.Errorf("get NVML device %q: %v", dev.ID, ret)
 		}
 
-		memory, ret := config.Nvml().DeviceGetMemoryInfo(ndev)
+		memory, ret := nvmllib.DeviceGetMemoryInfo(ndev)
 		if ret != nvml.SUCCESS {
-			fmt.Println("failed to get memory info for device id=", dev.ID)
-			panic(ret)
+			return nil, fmt.Errorf("get NVML memory for %q: %v", dev.ID, ret)
 		}
 
-		model, ret := config.Nvml().DeviceGetName(ndev)
+		model, ret := nvmllib.DeviceGetName(ndev)
 		if ret != nvml.SUCCESS {
-			fmt.Println("failed to get model name for device id=", dev.ID)
-			panic(ret)
+			return nil, fmt.Errorf("get NVML name for %q: %v", dev.ID, ret)
 		}
 
 		klog.V(3).Infoln("nvml registered device id=", dev.ID, "memory=", memory.Total, "type=", model)
@@ -112,5 +122,5 @@ func ConvertDeviceInfo(devs []*pluginapi.Device) *[]*util.DeviceInfo {
 		return res[i].Minor < res[j].Minor
 	})
 
-	return &res
+	return &res, nil
 }

@@ -17,7 +17,6 @@
 package plugin
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -29,7 +28,7 @@ import (
 	"volcano.sh/k8s-device-plugin/pkg/rm"
 )
 
-func TestAllocate(t *testing.T) {
+func TestGetAllocateResponse(t *testing.T) {
 	testCases := []struct {
 		description      string
 		request          *pluginapi.AllocateRequest
@@ -101,9 +100,9 @@ func TestAllocate(t *testing.T) {
 				deviceListStrategies: v1.DeviceListStrategies{"envvar": true},
 			}
 
-			response, err := plugin.Allocate(context.TODO(), tc.request)
+			response, err := plugin.getAllocateResponse(tc.request.ContainerRequests[0].DevicesIds)
 			require.EqualValues(t, tc.expectedError, err)
-			require.EqualValues(t, tc.expectedResponse, response)
+			require.EqualValues(t, tc.expectedResponse.ContainerResponses[0], response)
 		})
 	}
 }

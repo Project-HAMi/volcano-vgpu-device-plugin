@@ -207,8 +207,11 @@ func DecodeContainerDevices(str string) (c ContainerDevices, count int) {
 	}
 	for _, val := range cd {
 		if strings.Contains(val, ",") {
-			deviceCount++
 			tmpstr := strings.Split(val, ",")
+			if len(tmpstr) != 4 {
+				continue
+			}
+			deviceCount++
 			tmpdev.UUID = tmpstr[0]
 			tmpdev.Type = tmpstr[1]
 			devmem, _ := strconv.ParseInt(tmpstr[2], 10, 32)
@@ -221,6 +224,58 @@ func DecodeContainerDevices(str string) (c ContainerDevices, count int) {
 	}
 	//klog.V(4).Infoln("contdev=", contdev)
 	return contdev, deviceCount
+}
+
+// PlannedDeviceRequest keeps the scheduler's container and device order together.
+// Kubelet only sends requests for containers using this resource, so entries for
+// other resource types and containers must be skipped without being consumed.
+type PlannedDeviceRequest struct {
+	Container v1.Container
+	Devices   ContainerDevices
+}
+
+// PlanDeviceRequests validates a kubelet Allocate batch against the existing
+// Volcano annotation and returns the annotation to write after all responses
+// have been prepared. It does not mutate the Pod or perform an API write.
+func PlanDeviceRequests(dtype string, pod v1.Pod, requestSizes []int) ([]PlannedDeviceRequest, string, error) {
+	raw := pod.Annotations[AssignedIDsToAllocateAnnotations]
+	devices, _ := DecodePodDevices(raw)
+	if raw == "" || EncodePodDevices(devices) != raw || len(devices) > len(pod.Spec.Containers) {
+		return nil, "", fmt.Errorf("invalid device allocation annotation for pod %s/%s", pod.Namespace, pod.Name)
+	}
+
+	planned := make([]PlannedDeviceRequest, 0, len(requestSizes))
+	for _, size := range requestSizes {
+		if size <= 0 {
+			return nil, "", errors.New("container device request is empty")
+		}
+		matched := false
+		for index, containerDevices := range devices {
+			var selected ContainerDevices
+			var remaining ContainerDevices
+			for _, device := range containerDevices {
+				if device.Type == dtype {
+					selected = append(selected, device)
+				} else {
+					remaining = append(remaining, device)
+				}
+			}
+			if len(selected) == 0 {
+				continue
+			}
+			if len(selected) != size {
+				return nil, "", fmt.Errorf("device count mismatch for container %s: annotation=%d kubelet=%d", pod.Spec.Containers[index].Name, len(selected), size)
+			}
+			planned = append(planned, PlannedDeviceRequest{Container: pod.Spec.Containers[index], Devices: selected})
+			devices[index] = remaining
+			matched = true
+			break
+		}
+		if !matched {
+			return nil, "", errors.New("device request not found in Volcano allocation annotation")
+		}
+	}
+	return planned, EncodePodDevices(devices), nil
 }
 
 func DecodePodDevices(str string) (PodDevices, int) {
@@ -287,31 +342,35 @@ func EraseNextDeviceTypeFromAnnotation(dtype string, p v1.Pod) error {
 	return PatchPodAnnotations(&p, newAnnos)
 }
 
-func PodAllocationTrySuccess(nodeName string, pod *v1.Pod) {
-	refreshed, _ := client.GetClient().CoreV1().Pods(pod.Namespace).Get(context.Background(), pod.Name, metav1.GetOptions{})
+func PodAllocationTrySuccess(nodeName string, pod *v1.Pod) error {
+	refreshed, err := client.GetClient().CoreV1().Pods(pod.Namespace).Get(context.Background(), pod.Name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("refresh pod allocation %s/%s: %w", pod.Namespace, pod.Name, err)
+	}
 	annos := refreshed.Annotations[AssignedIDsToAllocateAnnotations]
 	klog.Infoln("TrySuccess:", annos)
 	for _, val := range DevicesToHandle {
 		if strings.Contains(annos, val) {
-			return
+			return nil
 		}
 	}
 	klog.Infoln("AllDevicesAllocateSuccess releasing lock")
-	PodAllocationSuccess(nodeName, pod)
+	return PodAllocationSuccess(nodeName, pod)
 }
 
-func PodAllocationSuccess(nodeName string, pod *v1.Pod) {
+func PodAllocationSuccess(nodeName string, pod *v1.Pod) error {
 	newannos := make(map[string]string)
 	newannos[DeviceBindPhase] = DeviceBindSuccess
 	newannos[AssignedTimeAnnotations] = strconv.FormatUint(math.MaxUint64, 10)
-	err := PatchPodAnnotations(pod, newannos)
-	if err != nil {
-		klog.Errorf("patchPodAnnotations failed:%v", err.Error())
+	patchErr := PatchPodAnnotations(pod, newannos)
+	if patchErr != nil {
+		klog.Errorf("patchPodAnnotations failed:%v", patchErr)
 	}
-	err = nodelock.ReleaseNodeLock(nodeName, VGPUDeviceName)
-	if err != nil {
-		klog.Errorf("release lock failed:%v", err.Error())
+	releaseErr := nodelock.ReleaseNodeLock(nodeName, VGPUDeviceName)
+	if releaseErr != nil {
+		klog.Errorf("release lock failed:%v", releaseErr)
 	}
+	return errors.Join(patchErr, releaseErr)
 }
 
 func PodAllocationFailed(nodeName string, pod *v1.Pod) {
