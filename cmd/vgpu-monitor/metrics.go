@@ -190,97 +190,98 @@ func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 	nowSec := time.Now().Unix()
 
-	containers := containerLister.ListContainers()
-	for _, pod := range pods {
-		for _, c := range containers {
-			//for sridx := range srPodList {
-			//	if srPodList[sridx].sr == nil {
-			//		continue
-			//	}
-			if c.Info == nil {
-				continue
-			}
-			//podUID := strings.Split(srPodList[sridx].idstr, "_")[0]
-			//ctrName := strings.Split(srPodList[sridx].idstr, "_")[1]
-			podUID := c.PodUID
-			ctrName := c.ContainerName
-			if strings.Compare(string(pod.UID), podUID) != 0 {
-				continue
-			}
-			fmt.Println("Pod matched!", pod.Name, pod.Namespace, pod.Labels)
-			for _, ctr := range pod.Spec.Containers {
-				if strings.Compare(ctr.Name, ctrName) != 0 {
+	containerLister.WithContainers(func(containers map[string]*nvidia.ContainerUsage) {
+		for _, pod := range pods {
+			for _, c := range containers {
+				//for sridx := range srPodList {
+				//	if srPodList[sridx].sr == nil {
+				//		continue
+				//	}
+				if c.Info == nil {
 					continue
 				}
-				fmt.Println("container matched", ctr.Name)
-				//err := setHostPid(pod, pod.Status.ContainerStatuses[ctridx], &srPodList[sridx])
-				//if err != nil {
-				//	fmt.Println("setHostPid filed", err.Error())
-				//}
-				//fmt.Println("sr.list=", srPodList[sridx].sr)
-				podlabels := make(map[string]string)
-				for idx, val := range pod.Labels {
-					idxfix := strings.ReplaceAll(idx, "-", "_")
-					valfix := strings.ReplaceAll(val, "-", "_")
-					podlabels[idxfix] = valfix
+				//podUID := strings.Split(srPodList[sridx].idstr, "_")[0]
+				//ctrName := strings.Split(srPodList[sridx].idstr, "_")[1]
+				podUID := c.PodUID
+				ctrName := c.ContainerName
+				if strings.Compare(string(pod.UID), podUID) != 0 {
+					continue
 				}
-				for i := 0; i < c.Info.DeviceNum(); i++ {
-					uuid := c.Info.DeviceUUID(i)[0:40]
-					if !utf8.ValidString(uuid) {
-						klog.Warningf("skipping device %d for pod %s/%s: UUID contains invalid UTF-8 (shared memory not yet initialized)", i, pod.Namespace, pod.Name)
+				fmt.Println("Pod matched!", pod.Name, pod.Namespace, pod.Labels)
+				for _, ctr := range pod.Spec.Containers {
+					if strings.Compare(ctr.Name, ctrName) != 0 {
 						continue
 					}
-					memoryTotal := c.Info.DeviceMemoryTotal(i)
-					memoryLimit := c.Info.DeviceMemoryLimit(i)
-					memoryContextSize := c.Info.DeviceMemoryContextSize(i)
-					memoryModuleSize := c.Info.DeviceMemoryModuleSize(i)
-					memoryBufferSize := c.Info.DeviceMemoryBufferSize(i)
-					memoryOffset := c.Info.DeviceMemoryOffset(i)
-					smUtil := c.Info.DeviceSmUtil(i)
-					lastKernelTime := c.Info.LastKernelTime()
-
-					//fmt.Println("uuid=", uuid, "length=", len(uuid))
-					ch <- prometheus.MustNewConstMetric(
-						ctrvGPUdesc,
-						prometheus.GaugeValue,
-						float64(memoryTotal),
-						pod.Namespace, pod.Name, ctrName, fmt.Sprint(i), uuid, /*,string(sr.sr.uuids[i].uuid[:])*/
-					)
-					ch <- prometheus.MustNewConstMetric(
-						ctrvGPUlimitdesc,
-						prometheus.GaugeValue,
-						float64(memoryLimit),
-						pod.Namespace, pod.Name, ctrName, fmt.Sprint(i), uuid, /*,string(sr.sr.uuids[i].uuid[:])*/
-					)
-					ch <- prometheus.MustNewConstMetric(
-						ctrDeviceMemorydesc,
-						prometheus.CounterValue,
-						float64(memoryTotal),
-						pod.Namespace, pod.Name, ctrName, fmt.Sprint(i), uuid,
-						fmt.Sprint(memoryContextSize), fmt.Sprint(memoryModuleSize), fmt.Sprint(memoryBufferSize), fmt.Sprint(memoryOffset),
-					)
-					ch <- prometheus.MustNewConstMetric(
-						ctrDeviceUtilizationdesc,
-						prometheus.GaugeValue,
-						float64(smUtil),
-						pod.Namespace, pod.Name, ctrName, fmt.Sprint(i), uuid,
-					)
-					if lastKernelTime > 0 {
-						lastSec := nowSec - lastKernelTime
-						if lastSec < 0 {
-							lastSec = 0
+					fmt.Println("container matched", ctr.Name)
+					//err := setHostPid(pod, pod.Status.ContainerStatuses[ctridx], &srPodList[sridx])
+					//if err != nil {
+					//	fmt.Println("setHostPid filed", err.Error())
+					//}
+					//fmt.Println("sr.list=", srPodList[sridx].sr)
+					podlabels := make(map[string]string)
+					for idx, val := range pod.Labels {
+						idxfix := strings.ReplaceAll(idx, "-", "_")
+						valfix := strings.ReplaceAll(val, "-", "_")
+						podlabels[idxfix] = valfix
+					}
+					for i := 0; i < c.Info.DeviceNum(); i++ {
+						uuid := c.Info.DeviceUUID(i)[0:40]
+						if !utf8.ValidString(uuid) {
+							klog.Warningf("skipping device %d for pod %s/%s: UUID contains invalid UTF-8 (shared memory not yet initialized)", i, pod.Namespace, pod.Name)
+							continue
 						}
+						memoryTotal := c.Info.DeviceMemoryTotal(i)
+						memoryLimit := c.Info.DeviceMemoryLimit(i)
+						memoryContextSize := c.Info.DeviceMemoryContextSize(i)
+						memoryModuleSize := c.Info.DeviceMemoryModuleSize(i)
+						memoryBufferSize := c.Info.DeviceMemoryBufferSize(i)
+						memoryOffset := c.Info.DeviceMemoryOffset(i)
+						smUtil := c.Info.DeviceSmUtil(i)
+						lastKernelTime := c.Info.LastKernelTime()
+
+						//fmt.Println("uuid=", uuid, "length=", len(uuid))
 						ch <- prometheus.MustNewConstMetric(
-							ctrDeviceLastKernelDesc,
+							ctrvGPUdesc,
 							prometheus.GaugeValue,
-							float64(lastSec),
+							float64(memoryTotal),
+							pod.Namespace, pod.Name, ctrName, fmt.Sprint(i), uuid, /*,string(sr.sr.uuids[i].uuid[:])*/
+						)
+						ch <- prometheus.MustNewConstMetric(
+							ctrvGPUlimitdesc,
+							prometheus.GaugeValue,
+							float64(memoryLimit),
+							pod.Namespace, pod.Name, ctrName, fmt.Sprint(i), uuid, /*,string(sr.sr.uuids[i].uuid[:])*/
+						)
+						ch <- prometheus.MustNewConstMetric(
+							ctrDeviceMemorydesc,
+							prometheus.CounterValue,
+							float64(memoryTotal),
+							pod.Namespace, pod.Name, ctrName, fmt.Sprint(i), uuid,
+							fmt.Sprint(memoryContextSize), fmt.Sprint(memoryModuleSize), fmt.Sprint(memoryBufferSize), fmt.Sprint(memoryOffset),
+						)
+						ch <- prometheus.MustNewConstMetric(
+							ctrDeviceUtilizationdesc,
+							prometheus.GaugeValue,
+							float64(smUtil),
 							pod.Namespace, pod.Name, ctrName, fmt.Sprint(i), uuid,
 						)
+						if lastKernelTime > 0 {
+							lastSec := nowSec - lastKernelTime
+							if lastSec < 0 {
+								lastSec = 0
+							}
+							ch <- prometheus.MustNewConstMetric(
+								ctrDeviceLastKernelDesc,
+								prometheus.GaugeValue,
+								float64(lastSec),
+								pod.Namespace, pod.Name, ctrName, fmt.Sprint(i), uuid,
+							)
+						}
 					}
 				}
 			}
 		}
-	}
+	})
 }
 
 // NewClusterManager first creates a Prometheus-ignorant ClusterManager

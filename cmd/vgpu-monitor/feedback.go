@@ -64,59 +64,60 @@ func CheckPriority(utSwitchOn map[string]UtilizationPerDevice, p int, c *nvidia.
 
 func Observe(lister *nvidia.ContainerLister) {
 	utSwitchOn := map[string]UtilizationPerDevice{}
-	containers := lister.ListContainers()
+	lister.WithContainers(func(containers map[string]*nvidia.ContainerUsage) {
 
-	for _, c := range containers {
-		recentKernel := c.Info.GetRecentKernel()
-		if recentKernel > 0 {
-			recentKernel--
+		for _, c := range containers {
+			recentKernel := c.Info.GetRecentKernel()
 			if recentKernel > 0 {
-				for i := 0; i < c.Info.DeviceMax(); i++ {
-					// Null device condition
-					if !c.Info.IsValidUUID(i) {
-						continue
+				recentKernel--
+				if recentKernel > 0 {
+					for i := 0; i < c.Info.DeviceMax(); i++ {
+						// Null device condition
+						if !c.Info.IsValidUUID(i) {
+							continue
+						}
+						uuid := c.Info.DeviceUUID(i)
+						if len(utSwitchOn[uuid]) == 0 {
+							utSwitchOn[uuid] = []int{0, 0}
+						}
+						utSwitchOn[uuid][c.Info.GetPriority()]++
 					}
-					uuid := c.Info.DeviceUUID(i)
-					if len(utSwitchOn[uuid]) == 0 {
-						utSwitchOn[uuid] = []int{0, 0}
-					}
-					utSwitchOn[uuid][c.Info.GetPriority()]++
+				}
+				c.Info.SetRecentKernel(recentKernel)
+			}
+		}
+		for idx, c := range containers {
+			priority := c.Info.GetPriority()
+			recentKernel := c.Info.GetRecentKernel()
+			utilizationSwitch := c.Info.GetUtilizationSwitch()
+			if CheckBlocking(utSwitchOn, priority, c) {
+				if recentKernel >= 0 {
+					klog.Infof("utSwitchon=%v", utSwitchOn)
+					klog.Infof("Setting Blocking to on %v", idx)
+					c.Info.SetRecentKernel(-1)
+				}
+			} else {
+				if recentKernel < 0 {
+					klog.Infof("utSwitchon=%v", utSwitchOn)
+					klog.Infof("Setting Blocking to off %v", idx)
+					c.Info.SetRecentKernel(0)
 				}
 			}
-			c.Info.SetRecentKernel(recentKernel)
-		}
-	}
-	for idx, c := range containers {
-		priority := c.Info.GetPriority()
-		recentKernel := c.Info.GetRecentKernel()
-		utilizationSwitch := c.Info.GetUtilizationSwitch()
-		if CheckBlocking(utSwitchOn, priority, c) {
-			if recentKernel >= 0 {
-				klog.Infof("utSwitchon=%v", utSwitchOn)
-				klog.Infof("Setting Blocking to on %v", idx)
-				c.Info.SetRecentKernel(-1)
-			}
-		} else {
-			if recentKernel < 0 {
-				klog.Infof("utSwitchon=%v", utSwitchOn)
-				klog.Infof("Setting Blocking to off %v", idx)
-				c.Info.SetRecentKernel(0)
+			if CheckPriority(utSwitchOn, priority, c) {
+				if utilizationSwitch != 1 {
+					klog.Infof("utSwitchon=%v", utSwitchOn)
+					klog.Infof("Setting UtilizationSwitch to on %v", idx)
+					c.Info.SetUtilizationSwitch(1)
+				}
+			} else {
+				if utilizationSwitch != 0 {
+					klog.Infof("utSwitchon=%v", utSwitchOn)
+					klog.Infof("Setting UtilizationSwitch to off %v", idx)
+					c.Info.SetUtilizationSwitch(0)
+				}
 			}
 		}
-		if CheckPriority(utSwitchOn, priority, c) {
-			if utilizationSwitch != 1 {
-				klog.Infof("utSwitchon=%v", utSwitchOn)
-				klog.Infof("Setting UtilizationSwitch to on %v", idx)
-				c.Info.SetUtilizationSwitch(1)
-			}
-		} else {
-			if utilizationSwitch != 0 {
-				klog.Infof("utSwitchon=%v", utSwitchOn)
-				klog.Infof("Setting UtilizationSwitch to off %v", idx)
-				c.Info.SetUtilizationSwitch(0)
-			}
-		}
-	}
+	})
 }
 
 func watchAndFeedback(lister *nvidia.ContainerLister) {

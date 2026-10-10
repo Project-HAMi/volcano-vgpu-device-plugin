@@ -30,6 +30,7 @@ import (
 
 	v0 "volcano.sh/k8s-device-plugin/pkg/monitor/nvidia/v0"
 	v1 "volcano.sh/k8s-device-plugin/pkg/monitor/nvidia/v1"
+	"volcano.sh/k8s-device-plugin/pkg/vgpucache"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -72,13 +73,14 @@ type ContainerUsage struct {
 	ContainerName string
 	data          []byte
 	Info          UsageInfo
+	directoryInfo os.FileInfo
 }
 
 type ContainerLister struct {
 	containerPath string
 	containers    map[string]*ContainerUsage
 	mutex         sync.Mutex
-	clientset     *kubernetes.Clientset
+	clientset     kubernetes.Interface
 }
 
 func NewContainerLister() (*ContainerLister, error) {
@@ -103,25 +105,16 @@ func NewContainerLister() (*ContainerLister, error) {
 	}, nil
 }
 
-func (l *ContainerLister) Lock() {
-	l.mutex.Lock()
-}
-
-func (l *ContainerLister) UnLock() {
-	l.mutex.Unlock()
-}
-
-func (l *ContainerLister) ListContainers() map[string]*ContainerUsage {
+// WithContainers keeps mappings alive for the duration of fn. Neither the map nor
+// its usage pointers may escape fn. Feedback writes and metrics reads are serialized
+// with unmapping to prevent use-after-unmap on concurrent scrapes or cache replacement.
+func (l *ContainerLister) WithContainers(fn func(map[string]*ContainerUsage)) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
-	snapshot := make(map[string]*ContainerUsage, len(l.containers))
-	for k, v := range l.containers {
-		snapshot[k] = v
-	}
-	return snapshot
+	fn(l.containers)
 }
 
-func (l *ContainerLister) Clientset() *kubernetes.Clientset {
+func (l *ContainerLister) Clientset() kubernetes.Interface {
 	return l.clientset
 }
 
@@ -134,51 +127,71 @@ func (l *ContainerLister) Update() error {
 	if nodeName := os.Getenv("NODE_NAME"); nodeName != "" {
 		listOptions.FieldSelector = "spec.nodeName=" + nodeName
 	}
-	pods, err := l.clientset.CoreV1().Pods("").List(context.Background(), listOptions)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	pods, err := l.clientset.CoreV1().Pods("").List(ctx, listOptions)
 	if err != nil {
 		return err
 	}
 
+	return l.reconcile(pods)
+}
+
+func (l *ContainerLister) reconcile(pods *corev1.PodList) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 	entries, err := os.ReadDir(l.containerPath)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	// Only the device plugin owns directory deletion. The monitor only manages
+	// mappings, including directories removed/replaced between updates.
+	present := make(map[string]os.FileInfo)
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !entry.IsDir() || !isValidPod(entry.Name(), pods) {
 			continue
 		}
-		dirName := filepath.Join(l.containerPath, entry.Name())
-		if !isValidPod(entry.Name(), pods) {
-			dirInfo, err := os.Stat(dirName)
-			if err == nil && dirInfo.ModTime().Add(time.Second*300).After(time.Now()) {
-				continue
-			}
-			klog.Infof("Removing dirname %s in monitorpath", dirName)
-			if c, ok := l.containers[entry.Name()]; ok {
-				syscall.Munmap(c.data)
-				delete(l.containers, entry.Name())
-			}
-			_ = os.RemoveAll(dirName)
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		present[entry.Name()] = info
+	}
+	for name, usage := range l.containers {
+		info, exists := present[name]
+		if exists && usage.directoryInfo != nil && os.SameFile(info, usage.directoryInfo) {
 			continue
 		}
-		if _, ok := l.containers[entry.Name()]; ok {
+		if err := syscall.Munmap(usage.data); err != nil {
+			return fmt.Errorf("unmap cache %s: %w", name, err)
+		}
+		delete(l.containers, name)
+	}
+	for name, info := range present {
+		if _, exists := l.containers[name]; exists {
 			continue
 		}
+		dirName := filepath.Join(l.containerPath, name)
 		usage, err := loadCache(dirName)
 		if err != nil {
-			klog.Errorf("Failed to load cache: %s, error: %v", dirName, err)
+			klog.Errorf("Failed to load cache %s: %v", dirName, err)
 			continue
 		}
 		if usage == nil {
-			// no cuInit in container
 			continue
 		}
-		usage.PodUID = strings.Split(entry.Name(), "_")[0]
-		usage.ContainerName = strings.Split(entry.Name(), "_")[1]
-		l.containers[entry.Name()] = usage
-		klog.Infof("Adding ctr dirname %s in monitorpath", dirName)
+		// Preparation may replace the directory during mmap. Never publish a mapping
+		// whose identity no longer matches the snapshot; retry on the next update.
+		current, err := os.Lstat(dirName)
+		if err != nil || !current.IsDir() || !os.SameFile(info, current) {
+			if unmapErr := syscall.Munmap(usage.data); unmapErr != nil {
+				return unmapErr
+			}
+			continue
+		}
+		usage.PodUID, usage.ContainerName, _ = vgpucache.ParseDirectoryName(name)
+		usage.directoryInfo = info
+		l.containers[name] = usage
 	}
 	return nil
 }
@@ -249,9 +262,23 @@ func loadCache(fpath string) (*ContainerUsage, error) {
 }
 
 func isValidPod(name string, pods *corev1.PodList) bool {
-	for _, val := range pods.Items {
-		if strings.Contains(name, string(val.UID)) {
-			return true
+	uid, container, ok := vgpucache.ParseDirectoryName(name)
+	if !ok || pods == nil {
+		return false
+	}
+	for _, pod := range pods.Items {
+		if string(pod.UID) != uid {
+			continue
+		}
+		for _, c := range pod.Spec.Containers {
+			if c.Name == container {
+				return true
+			}
+		}
+		for _, c := range pod.Spec.InitContainers {
+			if c.Name == container {
+				return true
+			}
 		}
 	}
 	return false
