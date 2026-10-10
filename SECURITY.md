@@ -56,7 +56,9 @@ Docker base image every week, and Dependabot alerts provide dependency scanning
 - A dependency under a license incompatible with Apache-2.0 must be removed or
   replaced before it is merged.
 - Open SCA findings rated critical or high must be resolved before release.
-  Maintainers run `govulncheck ./...` on the release commit to confirm this.
+  Maintainers run `govulncheck ./...` on the release commit to check for
+  applicable Go vulnerabilities, and use a separate SCA check to confirm that
+  other high or critical findings are resolved.
 
 Dependency review (SCA) must check every pull request for known
 vulnerabilities and malicious dependencies. The `dependency-review` check is
