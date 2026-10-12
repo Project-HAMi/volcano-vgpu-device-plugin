@@ -14,6 +14,25 @@ go test -race ./pkg/plugin -run TestIntegratedAllocate -count=1
 
 The tests check that cache preparation or MIG export failures do not consume allocation annotations, and that retrying allocation retains the cache filename and contents. They use fake Pod operations and a fake MIG backend. They do not validate how kubelet requests are associated with a Pod.
 
+## Validation of the split PRs
+
+The seven draft heads were combined locally on upstream `5283c86`: cache lifecycle #167 (`b818729`), MIG reliability #169 (`8d526e6`), Allocate validation #170 (`1514287`), preferred allocation / limits #171 (`b274b5e`), cache ABI #166 (`370aace`), node selectors #168 (`79717cb`), and these integration tests (`4b08a60`). The resulting local verification commit is `0419db88819574b7836824b653746a5ff88a4d06`; it is not an additional implementation PR or a published merge candidate.
+
+These branches do **not** merge cleanly without integration work. The local check resolved the shared Allocate implementation as follows:
+
+- Retain both registered-device validation and device-limit validation, the planned allocation flow, and error propagation from the MIG backend.
+- Keep the cache manager's `prepareCache` implementation and stable cache filename; remove the standalone helper introduced by the independently testable Allocate PR.
+- Initialize a Pod UID and a cache manager in the shared allocation test fixture when applying it to the combined implementation.
+- Keep MIG annotation handling from the MIG reliability PR; do not reintroduce the legacy annotation-erasure block from the older Allocate context.
+
+After these resolutions, the following targeted race suite passed:
+
+```sh
+go test -race ./pkg/plugin ./pkg/util ./pkg/config ./pkg/monitor/nvidia/... ./pkg/vgpucache ./pkg/nodepodinformer ./cmd/vgpu ./cmd/vgpu-monitor
+```
+
+This is a local combined test result, not evidence of conflict-free merging, a full-repository test pass, or a new cluster run. Maintainers must resolve the same overlaps and rerun the tests on the eventual merged commit.
+
 ## Previously tested combined candidate
 
 The original combined candidate was `c0faed1a05739ae67b4dfd2f8186779e90a80adf`, based on `6063efe9806ee7bd2fd966fc65f155c65c95696b`. Subsequent rebasing and dependency updates do not imply a new cluster run.
