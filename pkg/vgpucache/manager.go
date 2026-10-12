@@ -19,6 +19,7 @@ limitations under the License.
 package vgpucache
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -28,6 +29,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/klog/v2"
 )
 
 // Config configures a Manager.
@@ -110,6 +112,161 @@ func (m *Manager) Prepare(podUID, containerName string) (string, error) {
 		return "", fmt.Errorf("set vGPU cache directory permissions %s: %w", target, err)
 	}
 	return target, nil
+}
+
+// Run scans once at startup and then periodically until the process stops.
+func (m *Manager) Run(ctx context.Context) {
+	m.scanAndLog()
+	ticker := time.NewTicker(m.scanInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.scanAndLog()
+		}
+	}
+}
+
+// scanAndLog runs one GC pass and logs skipped or incomplete cleanup.
+func (m *Manager) scanAndLog() {
+	if err := m.scan(); err != nil {
+		klog.InfoS("vGPU cache GC skipped or incomplete", "err", err)
+	}
+}
+
+// scan collects expired candidates under mutex, confirms them without blocking
+// Prepare, then rechecks identities before deletion. A concurrent Prepare skips
+// the whole batch.
+func (m *Manager) scan() error {
+	// Skip overlapping scans instead of queuing redundant API requests.
+	if !m.scanMutex.TryLock() {
+		return nil
+	}
+	defer m.scanMutex.Unlock()
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	pods, err := m.listNodePods()
+	if err != nil {
+		return fmt.Errorf("list node Pods: %w", err)
+	}
+	livePodUIDs := make(map[string]struct{}, len(pods))
+	for _, pod := range pods {
+		if pod != nil {
+			livePodUIDs[string(pod.UID)] = struct{}{}
+		}
+	}
+
+	rootInfo, err := os.Lstat(m.root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat vGPU cache root %s: %w", m.root, err)
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return fmt.Errorf("vGPU cache root is not a real directory: %s", m.root)
+	}
+	entries, err := os.ReadDir(m.root)
+	if err != nil {
+		return fmt.Errorf("read vGPU cache root %s: %w", m.root, err)
+	}
+
+	var scanErr error
+	type candidate struct {
+		podUID string
+		path   string
+		info   os.FileInfo
+	}
+	var candidates []candidate
+	now := m.now()
+	for _, entry := range entries {
+		podUID, _, ok := parseCacheDirectoryName(entry.Name())
+		if !ok {
+			klog.InfoS("Skipping malformed vGPU cache entry", "entry", entry.Name())
+			continue
+		}
+		if _, live := livePodUIDs[podUID]; live {
+			continue
+		}
+
+		target := filepath.Join(m.root, entry.Name())
+		if filepath.Dir(target) != m.root {
+			continue
+		}
+		before, err := os.Lstat(target)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				scanErr = errors.Join(scanErr, fmt.Errorf("stat vGPU cache entry %s: %w", target, err))
+			}
+			continue
+		}
+		if before.Mode()&os.ModeSymlink != 0 || !before.IsDir() {
+			klog.InfoS("Skipping non-directory vGPU cache entry", "entry", target)
+			continue
+		}
+		if before.ModTime().Add(m.gracePeriod).After(now) {
+			continue
+		}
+
+		candidates = append(candidates, candidate{podUID: podUID, path: target, info: before})
+	}
+	if len(candidates) == 0 {
+		return scanErr
+	}
+	generation := m.generation
+	m.mutex.Unlock()
+	livePods, confirmErr := m.listLiveNodePods()
+	m.mutex.Lock()
+	if confirmErr != nil {
+		return errors.Join(scanErr, fmt.Errorf("confirm node Pods before cache GC: %w", confirmErr))
+	}
+	if generation != m.generation {
+		return scanErr
+	}
+	// The root may have been replaced externally while the mutex was released.
+	currentRoot, err := os.Lstat(m.root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return scanErr
+		}
+		return errors.Join(scanErr, fmt.Errorf("recheck vGPU cache root %s: %w", m.root, err))
+	}
+	if !currentRoot.IsDir() || !os.SameFile(rootInfo, currentRoot) {
+		return scanErr
+	}
+	confirmedPodUIDs := make(map[string]struct{}, len(livePods))
+	for _, pod := range livePods {
+		if pod != nil {
+			confirmedPodUIDs[string(pod.UID)] = struct{}{}
+		}
+	}
+	for _, entry := range candidates {
+		if _, exists := confirmedPodUIDs[entry.podUID]; exists {
+			continue
+		}
+		target, before := entry.path, entry.info
+
+		current, err := os.Lstat(target)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				scanErr = errors.Join(scanErr, fmt.Errorf("recheck vGPU cache entry %s: %w", target, err))
+			}
+			continue
+		}
+		if !os.SameFile(before, current) || !before.ModTime().Equal(current.ModTime()) {
+			klog.InfoS("Skipping vGPU cache entry changed during GC", "directory", target)
+			continue
+		}
+		if err := os.RemoveAll(target); err != nil {
+			scanErr = errors.Join(scanErr, fmt.Errorf("remove vGPU cache directory %s: %w", target, err))
+			continue
+		}
+		klog.InfoS("Removed stale vGPU cache directory", "directory", target, "podUID", entry.podUID)
+	}
+	return scanErr
 }
 
 // ensureRoot creates the cache root when absent and rejects symlinks and non-directories.

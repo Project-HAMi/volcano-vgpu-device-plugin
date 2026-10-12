@@ -17,13 +17,18 @@ limitations under the License.
 package vgpucache
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // newTestManager constructs an isolated manager with a shared test Pod provider for cached and
@@ -103,4 +108,400 @@ func TestPrepareRejectsInvalidIdentity(t *testing.T) {
 	entries, err := os.ReadDir(root)
 	require.NoError(t, err)
 	require.Empty(t, entries)
+}
+
+// TestScanFailsClosedWhenPodListFails checks that failed Pod reads preserve cache directories.
+func TestScanFailsClosedWhenPodListFails(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "pod-uid_main")
+	require.NoError(t, os.Mkdir(target, 0o755))
+	old := time.Now().Add(-2 * time.Minute)
+	require.NoError(t, os.Chtimes(target, old, old))
+	manager := newTestManager(t, root, func() ([]*corev1.Pod, error) {
+		return nil, errors.New("not synced")
+	})
+	require.Error(t, manager.scan())
+	_, err := os.Stat(target)
+	require.NoError(t, err)
+}
+
+// TestScanUsesPodExistenceRegardlessOfPhase checks that all existing Pods retain their cache
+// directories.
+func TestScanUsesPodExistenceRegardlessOfPhase(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "pod-uid_main")
+	require.NoError(t, os.Mkdir(target, 0o755))
+	old := time.Now().Add(-2 * time.Minute)
+	require.NoError(t, os.Chtimes(target, old, old))
+	manager := newTestManager(t, root, func() ([]*corev1.Pod, error) {
+		return []*corev1.Pod{{
+			ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-uid")},
+			Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+		}}, nil
+	})
+	require.NoError(t, manager.scan())
+	_, err := os.Stat(target)
+	require.NoError(t, err)
+}
+
+// TestScanDeleteAndSafetyRules checks expired orphan deletion and preservation of live,
+// malformed, or unsafe entries.
+func TestScanDeleteAndSafetyRules(t *testing.T) {
+	t.Run("delete stale valid directory", func(t *testing.T) {
+		root := t.TempDir()
+		target := filepath.Join(root, "missing-uid_main")
+		require.NoError(t, os.Mkdir(target, 0o755))
+		old := time.Now().Add(-2 * time.Minute)
+		require.NoError(t, os.Chtimes(target, old, old))
+		manager := newTestManager(t, root, func() ([]*corev1.Pod, error) { return nil, nil })
+		require.NoError(t, manager.scan())
+		_, statErr := os.Stat(target)
+		require.ErrorIs(t, statErr, os.ErrNotExist)
+	})
+
+	t.Run("skip malformed file and symlink", func(t *testing.T) {
+		root := t.TempDir()
+		malformed := filepath.Join(root, "malformed")
+		require.NoError(t, os.Mkdir(malformed, 0o755))
+		file := filepath.Join(root, "missing-uid_file")
+		require.NoError(t, os.WriteFile(file, []byte("x"), 0o600))
+		targetDir := t.TempDir()
+		link := filepath.Join(root, "missing-uid_link")
+		require.NoError(t, os.Symlink(targetDir, link))
+		manager := newTestManager(t, root, func() ([]*corev1.Pod, error) { return nil, nil })
+		manager.gracePeriod = 0
+		require.NoError(t, manager.scan())
+		for _, path := range []string{malformed, file, link, targetDir} {
+			_, err := os.Lstat(path)
+			require.NoError(t, err)
+		}
+	})
+}
+
+// TestRunRetriesUnavailableSnapshotAndStops checks periodic retry after Pod lookup failure and
+// cancellation of the GC loop.
+func TestRunRetriesUnavailableSnapshotAndStops(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "missing_main")
+	require.NoError(t, os.Mkdir(target, 0o755))
+	var synced atomic.Bool
+	scanned := make(chan struct{}, 1)
+	manager, err := New(Config{Root: root, ScanInterval: 5 * time.Millisecond}, func() ([]*corev1.Pod, error) {
+		available := synced.Load()
+		select {
+		case scanned <- struct{}{}:
+		default:
+		}
+		if !available {
+			return nil, errors.New("snapshot unavailable")
+		}
+		return nil, nil
+	}, func() ([]*corev1.Pod, error) { return nil, nil })
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { defer close(done); manager.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+	select {
+	case <-scanned:
+	case <-time.After(time.Second):
+		t.Fatal("initial scan did not run")
+	}
+	require.DirExists(t, target)
+	synced.Store(true)
+	require.Eventually(t, func() bool { _, err := os.Stat(target); return os.IsNotExist(err) }, time.Second, time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("GC did not stop after cancellation")
+	}
+	// Shutdown must leave no background scans that can delete later directories.
+	require.NoError(t, os.Mkdir(target, 0o755))
+	require.DirExists(t, target)
+}
+
+// TestScanRootSafety checks handling of missing, symlink, and non-directory cache roots.
+func TestScanRootSafety(t *testing.T) {
+	t.Run("missing root is harmless", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "missing")
+		manager := newTestManager(t, root, func() ([]*corev1.Pod, error) { return nil, nil })
+		require.NoError(t, manager.scan())
+		require.NoDirExists(t, root)
+	})
+	t.Run("root symlink never cleans its target", func(t *testing.T) {
+		target := t.TempDir()
+		stale := filepath.Join(target, "missing_main")
+		require.NoError(t, os.Mkdir(stale, 0o755))
+		root := filepath.Join(t.TempDir(), "link")
+		require.NoError(t, os.Symlink(target, root))
+		manager := newTestManager(t, root, func() ([]*corev1.Pod, error) { return nil, nil })
+		manager.gracePeriod = 0
+		require.ErrorContains(t, manager.scan(), "not a real directory")
+		require.DirExists(t, stale)
+	})
+	t.Run("file is not a cache root", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "file")
+		require.NoError(t, os.WriteFile(root, []byte("preserve"), 0o600))
+		manager := newTestManager(t, root, func() ([]*corev1.Pod, error) { return nil, nil })
+		require.ErrorContains(t, manager.scan(), "not a real directory")
+		_, err := manager.Prepare("pod", "main")
+		require.ErrorContains(t, err, "not a real directory")
+		data, err := os.ReadFile(root)
+		require.NoError(t, err)
+		require.Equal(t, "preserve", string(data))
+	})
+	t.Run("invalid parent propagates filesystem errors", func(t *testing.T) {
+		parent := filepath.Join(t.TempDir(), "file")
+		require.NoError(t, os.WriteFile(parent, nil, 0o600))
+		manager := newTestManager(t, filepath.Join(parent, "containers"), func() ([]*corev1.Pod, error) { return nil, nil })
+		require.ErrorContains(t, manager.scan(), "stat vGPU cache root")
+		_, err := manager.Prepare("pod", "main")
+		require.Error(t, err)
+	})
+}
+
+// TestScanHonorsGracePeriodAndNilPods checks grace-period protection and tolerance of nil Pod
+// entries.
+func TestScanHonorsGracePeriodAndNilPods(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t, root, func() ([]*corev1.Pod, error) { return []*corev1.Pod{nil}, nil })
+	target, err := manager.Prepare("missing", "main")
+	require.NoError(t, err)
+	require.NoError(t, manager.scan())
+	require.DirExists(t, target)
+	old := time.Now().Add(-2 * time.Minute)
+	require.NoError(t, os.Chtimes(target, old, old))
+	require.NoError(t, manager.scan())
+	require.NoDirExists(t, target)
+}
+
+// TestCacheFilesystemPermissionErrors checks propagation of filesystem access failures during
+// preparation and GC.
+func TestCacheFilesystemPermissionErrors(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permission checks")
+	}
+	t.Run("unreadable root", func(t *testing.T) {
+		root := t.TempDir()
+		manager := newTestManager(t, root, func() ([]*corev1.Pod, error) { return nil, nil })
+		require.NoError(t, os.Chmod(root, 0))
+		t.Cleanup(func() { require.NoError(t, os.Chmod(root, 0o700)) })
+		require.ErrorIs(t, manager.scan(), os.ErrPermission)
+	})
+	t.Run("cannot create directory", func(t *testing.T) {
+		root := t.TempDir()
+		manager := newTestManager(t, root, func() ([]*corev1.Pod, error) { return nil, nil })
+		require.NoError(t, os.Chmod(root, 0o500))
+		t.Cleanup(func() { require.NoError(t, os.Chmod(root, 0o700)) })
+		_, err := manager.Prepare("pod", "main")
+		require.ErrorContains(t, err, "create vGPU cache directory")
+		require.ErrorIs(t, err, os.ErrPermission)
+	})
+	t.Run("failed removal does not prevent other GC entries", func(t *testing.T) {
+		root := t.TempDir()
+		manager := newTestManager(t, root, func() ([]*corev1.Pod, error) { return nil, nil })
+		manager.gracePeriod = 0
+		blocked, err := manager.Prepare("a", "main")
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(blocked, "cache"), nil, 0o600))
+		require.NoError(t, os.Chmod(blocked, 0o500))
+		t.Cleanup(func() { require.NoError(t, os.Chmod(blocked, 0o700)) })
+		other, err := manager.Prepare("b", "main")
+		require.NoError(t, err)
+		_, err = manager.Prepare("a", "main")
+		require.ErrorContains(t, err, "remove previous vGPU cache directory")
+		require.ErrorIs(t, err, os.ErrPermission)
+		require.ErrorIs(t, manager.scan(), os.ErrPermission)
+		require.FileExists(t, filepath.Join(blocked, "cache"))
+		require.NoDirExists(t, other)
+	})
+}
+
+// TestScanConfirmsStaleSnapshotBeforeDeleting checks that live Pods in any phase survive stale
+// cached absence while true orphans are deleted.
+func TestScanConfirmsStaleSnapshotBeforeDeleting(t *testing.T) {
+	for _, phase := range []corev1.PodPhase{corev1.PodPending, corev1.PodRunning, corev1.PodSucceeded} {
+		t.Run(string(phase), func(t *testing.T) {
+			root := t.TempDir()
+			manager := newTestManager(t, root, func() ([]*corev1.Pod, error) { return nil, nil })
+			manager.gracePeriod = 0
+			live, err := manager.Prepare("live", "gpu")
+			require.NoError(t, err)
+			stale, err := manager.Prepare("stale", "gpu")
+			require.NoError(t, err)
+			calls := 0
+			manager.listLiveNodePods = func() ([]*corev1.Pod, error) {
+				calls++
+				return []*corev1.Pod{nil, {ObjectMeta: metav1.ObjectMeta{UID: "live"}, Status: corev1.PodStatus{Phase: phase}}}, nil
+			}
+			require.NoError(t, manager.scan())
+			require.DirExists(t, live)
+			require.NoDirExists(t, stale)
+			require.Equal(t, 1, calls, "batch confirmation once per scan")
+		})
+	}
+}
+
+// TestScanLiveConfirmationFailurePreservesAllCandidates checks that API errors preserve all
+// candidates until confirmation succeeds.
+func TestScanLiveConfirmationFailurePreservesAllCandidates(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t, root, func() ([]*corev1.Pod, error) { return nil, nil })
+	manager.gracePeriod = 0
+	now := time.Now().Add(time.Hour)
+	manager.now = func() time.Time { return now }
+	first, err := manager.Prepare("a", "gpu")
+	require.NoError(t, err)
+	second, err := manager.Prepare("b", "gpu")
+	require.NoError(t, err)
+	for _, failure := range []error{errors.New("API unavailable"), context.DeadlineExceeded, context.Canceled} {
+		manager.listLiveNodePods = func() ([]*corev1.Pod, error) { return nil, failure }
+		require.ErrorIs(t, manager.scan(), failure)
+		require.DirExists(t, first)
+		require.DirExists(t, second)
+		now = now.Add(time.Minute)
+	}
+	manager.listLiveNodePods = func() ([]*corev1.Pod, error) { return nil, nil }
+	require.NoError(t, manager.scan())
+	require.NoDirExists(t, first)
+	require.NoDirExists(t, second)
+}
+
+// TestScanAvoidsLiveQueryWithoutExpiredCandidates checks that live API calls are skipped when no
+// expired orphan candidate exists.
+func TestScanAvoidsLiveQueryWithoutExpiredCandidates(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t, root, func() ([]*corev1.Pod, error) {
+		return []*corev1.Pod{{ObjectMeta: metav1.ObjectMeta{UID: "known"}}}, nil
+	})
+	_, err := manager.Prepare("known", "gpu")
+	require.NoError(t, err)
+	_, err = manager.Prepare("recent", "gpu")
+	require.NoError(t, err)
+	manager.listLiveNodePods = func() ([]*corev1.Pod, error) {
+		t.Fatal("no deletion candidate should trigger an API request")
+		return nil, nil
+	}
+	require.NoError(t, manager.scan())
+}
+
+// TestScanRechecksDirectoryAfterLiveConfirmation checks that a directory replaced during API
+// confirmation is preserved.
+func TestScanRechecksDirectoryAfterLiveConfirmation(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t, root, func() ([]*corev1.Pod, error) { return nil, nil })
+	manager.gracePeriod = 0
+	target, err := manager.Prepare("pod", "gpu")
+	require.NoError(t, err)
+	manager.listLiveNodePods = func() ([]*corev1.Pod, error) {
+		// Simulate an external replacement while the API request is in flight.
+		require.NoError(t, os.Rename(target, target+".old"))
+		require.NoError(t, os.Mkdir(target, 0o777))
+		return nil, nil
+	}
+	require.NoError(t, manager.scan())
+	require.DirExists(t, target)
+}
+
+// TestScanAllowsPrepareDuringConfirmationAndEventuallyCleans verifies a slow LIST
+// neither blocks Prepare nor authorizes deletion of its newly prepared cache.
+func TestScanAllowsPrepareDuringConfirmationAndEventuallyCleans(t *testing.T) {
+	manager := newTestManager(t, t.TempDir(), func() ([]*corev1.Pod, error) { return nil, nil })
+	manager.gracePeriod = 0
+	old, err := manager.Prepare("old", "gpu")
+	require.NoError(t, err)
+	replaced, err := manager.Prepare("replaced", "gpu")
+	require.NoError(t, err)
+	entered, release := make(chan struct{}), make(chan struct{})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var calls atomic.Int32
+	manager.listLiveNodePods = func() ([]*corev1.Pod, error) {
+		if calls.Add(1) == 1 {
+			close(entered)
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return nil, nil
+	}
+	done := make(chan error, 1)
+	go func() { done <- manager.scan() }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("GC did not start confirmation")
+	}
+	prepared := make(chan error, 1)
+	go func() { _, err := manager.Prepare("replaced", "gpu"); prepared <- err }()
+	select {
+	case err := <-prepared:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Prepare blocked behind live LIST")
+	}
+	// Another GC scan must not queue a second request or block behind this one.
+	overlapped := make(chan error, 1)
+	go func() { overlapped <- manager.scan() }()
+	select {
+	case err := <-overlapped:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("overlapping scan blocked")
+	}
+	require.Equal(t, int32(1), calls.Load())
+	close(release)
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("GC did not finish")
+	}
+	require.DirExists(t, old, "concurrent Prepare invalidates the entire batch")
+	require.DirExists(t, replaced)
+	// On a subsequent stable round both orphaned directories are collectible.
+	manager.now = func() time.Time { return time.Now().Add(time.Minute) }
+	require.NoError(t, manager.scan())
+	require.NoDirExists(t, old)
+	require.NoDirExists(t, replaced)
+	require.Equal(t, int32(2), calls.Load(), "one LIST confirms the whole batch")
+}
+
+// TestScanRechecksRootAndCandidateAfterConfirmation verifies external filesystem
+// changes during the unlocked API request cannot redirect or accelerate deletion.
+func TestScanRechecksRootAndCandidateAfterConfirmation(t *testing.T) {
+	for _, change := range []string{"root replaced", "root symlink", "mtime changed", "candidate removed"} {
+		t.Run(change, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "containers")
+			manager := newTestManager(t, root, func() ([]*corev1.Pod, error) { return nil, nil })
+			manager.gracePeriod = 0
+			target, err := manager.Prepare("orphan", "gpu")
+			require.NoError(t, err)
+			manager.listLiveNodePods = func() ([]*corev1.Pod, error) {
+				switch change {
+				case "root replaced":
+					require.NoError(t, os.Rename(root, root+".old"))
+					require.NoError(t, os.MkdirAll(target, 0o777))
+				case "root symlink":
+					require.NoError(t, os.Rename(root, root+".old"))
+					require.NoError(t, os.Symlink(root+".old", root))
+				case "mtime changed":
+					future := time.Now().Add(time.Hour)
+					require.NoError(t, os.Chtimes(target, future, future))
+				case "candidate removed":
+					require.NoError(t, os.RemoveAll(target))
+				}
+				return nil, nil
+			}
+			require.NoError(t, manager.scan())
+			if change == "candidate removed" {
+				require.NoDirExists(t, target)
+			} else {
+				require.DirExists(t, target)
+			}
+		})
+	}
 }
