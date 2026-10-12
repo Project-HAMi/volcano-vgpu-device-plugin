@@ -72,13 +72,16 @@ type ContainerUsage struct {
 	ContainerName string
 	data          []byte
 	Info          UsageInfo
+	cacheFilePath string
+	cacheFileInfo os.FileInfo
 }
 
 type ContainerLister struct {
 	containerPath string
 	containers    map[string]*ContainerUsage
 	mutex         sync.Mutex
-	clientset     *kubernetes.Clientset
+	clientset     kubernetes.Interface
+	closeOnce     sync.Once
 }
 
 func NewContainerLister() (*ContainerLister, error) {
@@ -111,17 +114,14 @@ func (l *ContainerLister) UnLock() {
 	l.mutex.Unlock()
 }
 
+// ListContainers exposes the mapped containers. Callers must hold Lock until
+// they finish accessing the map and every returned ContainerUsage.Info, including
+// writes. Keeping a pointer after UnLock does not keep its mmap alive.
 func (l *ContainerLister) ListContainers() map[string]*ContainerUsage {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-	snapshot := make(map[string]*ContainerUsage, len(l.containers))
-	for k, v := range l.containers {
-		snapshot[k] = v
-	}
-	return snapshot
+	return l.containers
 }
 
-func (l *ContainerLister) Clientset() *kubernetes.Clientset {
+func (l *ContainerLister) Clientset() kubernetes.Interface {
 	return l.clientset
 }
 
@@ -141,30 +141,48 @@ func (l *ContainerLister) Update() error {
 
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
+
 	entries, err := os.ReadDir(l.containerPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			l.unmapAll()
+		}
 		return err
 	}
+
+	podUIDs := make(map[string]bool, len(pods.Items))
+	for _, pod := range pods.Items {
+		podUIDs[string(pod.UID)] = true
+	}
+
+	present := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
+		present[entry.Name()] = struct{}{}
+		parts := strings.SplitN(entry.Name(), "_", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			klog.Warningf("Skipping dir with unexpected name format: %s", entry.Name())
+			continue
+		}
 		dirName := filepath.Join(l.containerPath, entry.Name())
-		if !isValidPod(entry.Name(), pods) {
+		podUID := parts[0]
+		if !podUIDs[podUID] {
 			dirInfo, err := os.Stat(dirName)
-			if err == nil && dirInfo.ModTime().Add(time.Second*300).After(time.Now()) {
+			if err == nil && dirInfo.ModTime().Add(5*time.Minute).After(time.Now()) {
 				continue
 			}
-			klog.Infof("Removing dirname %s in monitorpath", dirName)
-			if c, ok := l.containers[entry.Name()]; ok {
-				syscall.Munmap(c.data)
-				delete(l.containers, entry.Name())
-			}
+			l.unmapContainer(entry.Name())
 			_ = os.RemoveAll(dirName)
 			continue
 		}
-		if _, ok := l.containers[entry.Name()]; ok {
-			continue
+		if current, ok := l.containers[entry.Name()]; ok {
+			if cacheMappingIsCurrent(current) {
+				continue
+			}
+			klog.InfoS("Reloading replaced vGPU cache file", "directory", dirName)
+			l.unmapContainer(entry.Name())
 		}
 		usage, err := loadCache(dirName)
 		if err != nil {
@@ -172,15 +190,67 @@ func (l *ContainerLister) Update() error {
 			continue
 		}
 		if usage == nil {
-			// no cuInit in container
 			continue
 		}
-		usage.PodUID = strings.Split(entry.Name(), "_")[0]
-		usage.ContainerName = strings.Split(entry.Name(), "_")[1]
+		usage.PodUID = podUID
+		usage.ContainerName = parts[1]
 		l.containers[entry.Name()] = usage
 		klog.Infof("Adding ctr dirname %s in monitorpath", dirName)
 	}
+
+	// Device-plugin GC may remove a directory between monitor scans. mmap keeps
+	// the old inode alive, so explicitly release mappings whose directory has
+	// disappeared instead of relying on directory traversal to encounter them.
+	for name := range l.containers {
+		if _, ok := present[name]; !ok {
+			klog.InfoS("Releasing mapping for removed vGPU cache directory", "directory", name)
+			l.unmapContainer(name)
+		}
+	}
 	return nil
+}
+
+// cacheMappingIsCurrent checks whether a mapping still refers to the same file identity and
+// size.
+func cacheMappingIsCurrent(usage *ContainerUsage) bool {
+	if usage.cacheFilePath == "" || usage.cacheFileInfo == nil {
+		return false
+	}
+	info, err := os.Stat(usage.cacheFilePath)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(usage.cacheFileInfo, info) && usage.cacheFileInfo.Size() == info.Size()
+}
+
+// unmapContainer releases and removes one mapping. The caller must hold the lister lock.
+func (l *ContainerLister) unmapContainer(name string) {
+	usage, ok := l.containers[name]
+	if !ok {
+		return
+	}
+	if len(usage.data) > 0 {
+		if err := syscall.Munmap(usage.data); err != nil {
+			klog.ErrorS(err, "Failed to unmap vGPU cache", "container", name)
+		}
+	}
+	delete(l.containers, name)
+}
+
+// unmapAll releases every mapping. The caller must hold the lister lock.
+func (l *ContainerLister) unmapAll() {
+	for name := range l.containers {
+		l.unmapContainer(name)
+	}
+}
+
+// Close releases every mmap owned by the monitor. It is safe to call more than once.
+func (l *ContainerLister) Close() {
+	l.closeOnce.Do(func() {
+		l.mutex.Lock()
+		defer l.mutex.Unlock()
+		l.unmapAll()
+	})
 }
 
 func loadCache(fpath string) (*ContainerUsage, error) {
@@ -226,7 +296,7 @@ func loadCache(fpath string) (*ContainerUsage, error) {
 	defer func(f *os.File) {
 		_ = f.Close()
 	}(f)
-	usage := &ContainerUsage{}
+	usage := &ContainerUsage{cacheFilePath: cacheFile, cacheFileInfo: info}
 	usage.data, err = syscall.Mmap(int(f.Fd()), 0, int(info.Size()), syscall.PROT_WRITE|syscall.PROT_READ, syscall.MAP_SHARED)
 	if err != nil {
 		klog.Errorf("Failed to mmap cache file: %s, error: %v", cacheFile, err)

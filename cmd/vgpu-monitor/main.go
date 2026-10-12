@@ -17,8 +17,11 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"volcano.sh/k8s-device-plugin/pkg/monitor/nvidia"
 
@@ -46,11 +49,19 @@ func main() {
 	if err != nil {
 		klog.Fatalf("Failed to create container lister: %v", err)
 	}
+	defer containerLister.Close()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	errchannel := make(chan error)
 	go initMetrics(containerLister)
 	go watchAndFeedback(containerLister)
 	for {
-		err := <-errchannel
-		klog.Errorf("failed to serve: %v", err)
+		select {
+		case <-ctx.Done():
+			return
+		case err := <-errchannel:
+			klog.Errorf("failed to serve: %v", err)
+		}
 	}
 }

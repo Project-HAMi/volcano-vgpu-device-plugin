@@ -190,6 +190,8 @@ func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 	nowSec := time.Now().Unix()
 
+	containerLister.Lock()
+	defer containerLister.UnLock()
 	containers := containerLister.ListContainers()
 	for _, pod := range pods {
 		for _, c := range containers {
