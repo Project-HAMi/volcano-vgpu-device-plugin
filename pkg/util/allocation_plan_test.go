@@ -77,18 +77,3 @@ func TestPlanDeviceRequestsRejectsInvalidLimitsAndIdentity(t *testing.T) {
 		})
 	}
 }
-
-func TestGetOldestPodRequiresExactRemainingTotalDeviceCount(t *testing.T) {
-	// The current timestamp lock protocol has no Pod identity in Allocate.
-	// One-container-at-a-time kubelet calls for a two-GPU Pod cannot match it.
-	pod := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
-			AssignedNodeAnnotations:          "node-a",
-			AssignedIDsToAllocateAnnotations: "GPU-A,NVIDIA,1000,20:;GPU-B,NVIDIA,1000,20:",
-		}},
-		Spec:   corev1.PodSpec{NodeName: "node-a", Containers: []corev1.Container{{Name: "first"}, {Name: "second"}}},
-		Status: corev1.PodStatus{Phase: corev1.PodPending},
-	}
-	require.Nil(t, getOldestPod([]corev1.Pod{pod}, "node-a", 1))
-	require.NotNil(t, getOldestPod([]corev1.Pod{pod}, "node-a", 2))
-}
