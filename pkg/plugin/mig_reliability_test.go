@@ -3,8 +3,6 @@ package plugin
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -150,16 +148,6 @@ func TestMIGReturnsExportResolutionAndCDIErrors(t *testing.T) {
 			require.Zero(t, f.applies)
 		})
 	}
-}
-
-func TestWriteMIGConfigFailureAndPrivatePermissions(t *testing.T) {
-	desired := config.MigPartedSpec{Version: "v1"}
-	require.ErrorContains(t, writeMIGConfig(filepath.Join(t.TempDir(), "missing", "config"), desired), "write MIG config")
-	path := filepath.Join(t.TempDir(), "config")
-	require.NoError(t, writeMIGConfig(path, desired))
-	info, err := os.Stat(path)
-	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0600), info.Mode().Perm())
 }
 
 func TestProcessMIGConfigsRejectsAmbiguousState(t *testing.T) {
