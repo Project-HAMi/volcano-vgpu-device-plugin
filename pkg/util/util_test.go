@@ -60,7 +60,7 @@ func TestSelectNodeConfigsPriorityAndFallback(t *testing.T) {
 	}{
 		{name: "exact name wins over selectors", node: "gpu-01", labels: map[string]string{"gpu-pool": "large", "zone": "a"}, want: []string{"exact"}},
 		{name: "all label rules retain list order", node: "gpu-02", labels: map[string]string{"gpu-pool": "large", "zone": "a"}, want: []string{"label-first", "label-second"}},
-		{name: "wildcard is only fallback", node: "gpu-03", labels: map[string]string{"zone": "b"}, want: []string{"fallback"}},
+		{name: "matching selector takes precedence over wildcard", node: "gpu-03", labels: map[string]string{"gpu-pool": "large", "zone": "b"}, want: []string{"label-first"}},
 		{name: "no matching label uses wildcard", node: "gpu-04", labels: map[string]string{"zone": "b"}, want: []string{"fallback"}},
 	}
 	for _, tt := range tests {
