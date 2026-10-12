@@ -53,6 +53,8 @@ spec:
               fieldPath: spec.nodeName
         - name: HOOK_PATH
           value: "/usr/local/vgpu"
+        - name: HAMI_VGPU_CACHE_GRACE_PERIOD
+          value: {{ .Values.vgpuCache.gracePeriod | quote }}
         - name: NVIDIA_VISIBLE_DEVICES
           value: "all"
         - name: NVIDIA_MIG_MONITOR_DEVICES

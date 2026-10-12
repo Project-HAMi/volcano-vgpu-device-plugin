@@ -151,6 +151,9 @@ rules:
 - apiGroups: [""]
   resources: ["configmaps"]
   verbs: ["get", "list", "watch", "create", "update"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -215,6 +218,8 @@ spec:
               fieldPath: spec.nodeName
         - name: HOOK_PATH
           value: "/usr/local/vgpu"
+        - name: HAMI_VGPU_CACHE_GRACE_PERIOD
+          value: "5m"
         - name: NVIDIA_VISIBLE_DEVICES
           value: "all"
         - name: NVIDIA_MIG_MONITOR_DEVICES

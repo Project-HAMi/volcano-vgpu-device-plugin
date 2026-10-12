@@ -328,7 +328,9 @@ func start(c *cli.Context, o *options) error {
 		return fmt.Errorf("create device-plugin node Pod informer: %w", err)
 	}
 	listLiveNodePods := func() ([]*corev1.Pod, error) { return nodePods.ListFresh(processCtx) }
-	cacheManager, err := vgpucache.New(resolveVGPUCacheConfig(), nodePods.List, listLiveNodePods)
+	cacheConfig := resolveVGPUCacheConfig()
+	cacheConfig.OnAbandoned = startVGPUCacheEvents(processCtx, kubeClient, os.Getenv("NODE_NAME"))
+	cacheManager, err := vgpucache.New(cacheConfig, nodePods.List, listLiveNodePods)
 	if err != nil {
 		return fmt.Errorf("create vGPU cache manager: %w", err)
 	}

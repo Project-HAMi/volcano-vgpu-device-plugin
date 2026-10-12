@@ -7,6 +7,10 @@ image:
   tag: v1.12.0
   pullPolicy: IfNotPresent
 
+vgpuCache:
+  # -- Minimum directory age before stale cache GC. Uses Go duration syntax; "0s" still requires live Pod confirmation. Independent of monitor activity.
+  gracePeriod: "5m"
+
 monitor:
   enabled: true
   image:

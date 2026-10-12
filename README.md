@@ -123,6 +123,16 @@ data:
       - name: binpack
 ```
 
+### vGPU cache lifecycle
+
+The device-plugin process prepares per-container cache directories during allocation and reclaims stale directories. Cleanup requires both an expired grace period and a live API-server confirmation that the Pod no longer exists. Existing Pods retain their directories regardless of phase. Allocation fails if the cache directory cannot be prepared. As in HAMi, preparing the same Pod/container replaces its old cache directory.
+
+The Helm value `vgpuCache.gracePeriod` sets `HAMI_VGPU_CACHE_GRACE_PERIOD` (default `5m`). It uses Go duration syntax: `0s` removes the age requirement but keeps live Pod confirmation; negative durations prevent startup, and invalid duration strings fall back to `5m`.
+
+Both containers derive the cache root from `HOOK_PATH/vgpu/containers`. Custom deployments can set `HAMI_VGPU_CACHE_ROOT` in both containers; the plugin, monitor, and workload host-path mounts must resolve to the same host directory. The supplied manifests retain the existing shared volume layout.
+
+The monitor manages memory mappings and feedback, and no longer deletes directories. Disabling it still disables feedback control as well as metrics. After five failed deletion attempts for the same directory, the plugin logs an error and queues a `VGPUCacheCleanupAbandoned` Warning Event on the Node. Fix the filesystem problem, then remove the stale directory manually or restart the plugin to retry.
+
 ### Sharing Mode
 
 Volcano-vgpu supports two types of device-sharing: `HAMi-core` and `dynamia-mig`, A node can either using `HAMi-core`, or `Dynamic-mig`. Heterogeneous is supported(a part of node using HAMi-core, the other using Dynamic-mig)
