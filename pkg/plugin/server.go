@@ -38,6 +38,7 @@ import (
 	"volcano.sh/k8s-device-plugin/pkg/rm"
 	"volcano.sh/k8s-device-plugin/pkg/util"
 	"volcano.sh/k8s-device-plugin/pkg/util/nodelock"
+	"volcano.sh/k8s-device-plugin/pkg/vgpucache"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/google/uuid"
@@ -96,6 +97,10 @@ type nvidiaDevicePlugin struct {
 
 	migCurrent config.MigPartedSpec
 
+	cacheManager *vgpucache.Manager
+	cacheCancel  context.CancelFunc
+	cacheDone    chan struct{}
+
 	// entryLimitWarned keeps the device count warning to one line per plugin,
 	// since apiDevices runs again on every health event. Only ListAndWatch
 	// reaches it, so no synchronisation is needed.
@@ -146,6 +151,7 @@ func (plugin *nvidiaDevicePlugin) initialize() {
 }
 
 func (plugin *nvidiaDevicePlugin) cleanup() {
+	plugin.stopCacheManager()
 	close(plugin.stop)
 	plugin.server = nil
 	plugin.health = nil
@@ -169,6 +175,11 @@ func (plugin *nvidiaDevicePlugin) Start(kubeletSocket string) error {
 
 	if err := plugin.mps.waitForDaemon(); err != nil {
 		return fmt.Errorf("error waiting for MPS daemon: %w", err)
+	}
+
+	if err := plugin.startCacheManager(); err != nil {
+		plugin.cleanup()
+		return err
 	}
 
 	if err := plugin.Serve(); err != nil {
@@ -225,10 +236,10 @@ func (plugin *nvidiaDevicePlugin) Stop() error {
 	}
 	klog.Infof("Stopping to serve '%s' on %s", plugin.rm.Resource(), plugin.socket)
 	plugin.server.Stop()
+	defer plugin.cleanup()
 	if err := os.Remove(plugin.socket); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	plugin.cleanup()
 	return nil
 }
 
@@ -407,6 +418,12 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 				util.PodAllocationFailed(nodeName, current)
 				return nil, fmt.Errorf("failed to get allocate response: %v", err)
 			}
+			err = util.EraseNextDeviceTypeFromAnnotation(util.NvidiaGPUDevice, *current)
+			if err != nil {
+				klog.Errorln("Erase annotation failed", err.Error())
+				util.PodAllocationFailed(nodeName, current)
+				return &pluginapi.AllocateResponse{}, err
+			}
 			responses.ContainerResponses = append(responses.ContainerResponses, response)
 		} else {
 
@@ -428,12 +445,6 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 			if err != nil {
 				return nil, fmt.Errorf("failed to get allocate response: %v", err)
 			}
-			err = util.EraseNextDeviceTypeFromAnnotation(util.NvidiaGPUDevice, *current)
-			if err != nil {
-				klog.Errorln("Erase annotation failed", err.Error())
-				util.PodAllocationFailed(nodeName, current)
-				return &pluginapi.AllocateResponse{}, err
-			}
 
 			if config.Mode != "mig" {
 				for i, dev := range devreq {
@@ -441,7 +452,6 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 					response.Envs[limitKey] = fmt.Sprintf("%vm", dev.Usedmem*int32(config.GPUMemoryFactor))
 				}
 				response.Envs["CUDA_DEVICE_SM_LIMIT"] = fmt.Sprint(devreq[0].Usedcores)
-				response.Envs["CUDA_DEVICE_MEMORY_SHARED_CACHE"] = fmt.Sprintf("/tmp/vgpu/%v.cache", uuid.New().String())
 
 				if config.DeviceCoresScaling > 1 {
 					response.Envs["CUDA_OVERSUBSCRIBE"] = "true"
@@ -451,13 +461,17 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 				}
 
 				hostHookPath := os.Getenv("HOOK_PATH")
-				cacheFileHostDirectory := fmt.Sprintf("%s/vgpu/containers/%s_%s", hostHookPath, current.UID, currentCtr.Name)
-				os.RemoveAll(cacheFileHostDirectory)
-
-				os.MkdirAll(cacheFileHostDirectory, 0777)
-				os.Chmod(cacheFileHostDirectory, 0777)
-				os.MkdirAll("/tmp/vgpulock", 0777)
-				os.Chmod("/tmp/vgpulock", 0777)
+				cacheFileHostDirectory, err := plugin.prepareCache(string(current.UID), currentCtr.Name)
+				if err != nil {
+					util.PodAllocationFailed(nodeName, current)
+					return nil, fmt.Errorf("prepare vGPU cache: %w", err)
+				}
+				cacheName, err := vgpucache.CacheFileName(cacheFileHostDirectory)
+				if err != nil {
+					util.PodAllocationFailed(nodeName, current)
+					return nil, fmt.Errorf("select vGPU cache: %w", err)
+				}
+				response.Envs["CUDA_DEVICE_MEMORY_SHARED_CACHE"] = filepath.Join("/tmp/vgpu", cacheName)
 
 				response.Mounts = append(response.Mounts,
 					&pluginapi.Mount{ContainerPath: "/usr/local/vgpu/libvgpu.so",
