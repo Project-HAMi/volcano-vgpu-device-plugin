@@ -42,7 +42,9 @@ import (
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"gopkg.in/yaml.v2"
 
 	"k8s.io/klog/v2"
@@ -303,7 +305,7 @@ func (plugin *nvidiaDevicePlugin) Register(kubeletSocket string) error {
 		Endpoint:     path.Base(plugin.socket),
 		ResourceName: string(plugin.rm.Resource()),
 		Options: &pluginapi.DevicePluginOptions{
-			GetPreferredAllocationAvailable: true,
+			GetPreferredAllocationAvailable: false,
 		},
 	}
 
@@ -317,7 +319,7 @@ func (plugin *nvidiaDevicePlugin) Register(kubeletSocket string) error {
 // GetDevicePluginOptions returns the values of the optional settings for this plugin
 func (plugin *nvidiaDevicePlugin) GetDevicePluginOptions(context.Context, *pluginapi.Empty) (*pluginapi.DevicePluginOptions, error) {
 	options := &pluginapi.DevicePluginOptions{
-		GetPreferredAllocationAvailable: true,
+		GetPreferredAllocationAvailable: false,
 	}
 	return options, nil
 }
@@ -344,20 +346,9 @@ func (plugin *nvidiaDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.D
 
 // GetPreferredAllocation returns the preferred allocation from the set of devices specified in the request
 func (plugin *nvidiaDevicePlugin) GetPreferredAllocation(ctx context.Context, r *pluginapi.PreferredAllocationRequest) (*pluginapi.PreferredAllocationResponse, error) {
-	response := &pluginapi.PreferredAllocationResponse{}
-	/*for _, req := range r.ContainerRequests {
-		devices, err := plugin.rm.GetPreferredAllocation(req.AvailableDeviceIDs, req.MustIncludeDeviceIDs, int(req.AllocationSize))
-		if err != nil {
-			return nil, fmt.Errorf("error getting list of preferred allocation devices: %v", err)
-		}
-
-		resp := &pluginapi.ContainerPreferredAllocationResponse{
-			DeviceIDs: devices,
-		}
-
-		response.ContainerResponses = append(response.ContainerResponses, resp)
-	}*/
-	return response, nil
+	// Volcano has already selected physical devices. The kubelet preference API
+	// has no Pod identity and cannot safely refit that selection or its limits.
+	return nil, status.Error(codes.Unimplemented, "preferred allocation is unavailable for Volcano-assigned devices")
 }
 
 // Allocate returns a list of devices.
@@ -423,6 +414,10 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 				util.PodAllocationFailed(nodeName, current)
 				return &pluginapi.AllocateResponse{}, errors.New("device number not matched")
 			}
+			if err := validateVolcanoDeviceLimits(devreq); err != nil {
+				util.PodAllocationFailed(nodeName, current)
+				return nil, err
+			}
 
 			response, err := plugin.getAllocateResponse(plugin.GetContainerDeviceStrArray(devreq))
 			if err != nil {
@@ -436,11 +431,7 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 			}
 
 			if config.Mode != "mig" {
-				for i, dev := range devreq {
-					limitKey := fmt.Sprintf("CUDA_DEVICE_MEMORY_LIMIT_%v", i)
-					response.Envs[limitKey] = fmt.Sprintf("%vm", dev.Usedmem*int32(config.GPUMemoryFactor))
-				}
-				response.Envs["CUDA_DEVICE_SM_LIMIT"] = fmt.Sprint(devreq[0].Usedcores)
+				applyVolcanoDeviceLimits(response, devreq)
 				response.Envs["CUDA_DEVICE_MEMORY_SHARED_CACHE"] = fmt.Sprintf("/tmp/vgpu/%v.cache", uuid.New().String())
 
 				if config.DeviceCoresScaling > 1 {
@@ -498,7 +489,10 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 }
 
 func (plugin *nvidiaDevicePlugin) getAllocateResponse(requestIds []string) (*pluginapi.ContainerAllocateResponse, error) {
-	deviceIDs := plugin.uniqueDeviceIDsFromAnnotatedDeviceIDs(requestIds)
+	deviceIDs, err := plugin.uniqueDeviceIDsFromAnnotatedDeviceIDs(requestIds)
+	if err != nil {
+		return nil, err
+	}
 
 	// Create an empty response that will be updated as required below.
 	response := &pluginapi.ContainerAllocateResponse{
@@ -631,13 +625,25 @@ func (plugin *nvidiaDevicePlugin) dial(unixSocketPath string, timeout time.Durat
 	return c, nil
 }
 
-func (plugin *nvidiaDevicePlugin) uniqueDeviceIDsFromAnnotatedDeviceIDs(ids []string) []string {
+func (plugin *nvidiaDevicePlugin) uniqueDeviceIDsFromAnnotatedDeviceIDs(ids []string) ([]string, error) {
 	var deviceIDs []string
 	if *plugin.config.Flags.Plugin.DeviceIDStrategy == spec.DeviceIDStrategyUUID {
 		deviceIDs = rm.AnnotatedIDs(ids).GetIDs()
 	}
 	if *plugin.config.Flags.Plugin.DeviceIDStrategy == spec.DeviceIDStrategyIndex {
-		deviceIDs = plugin.rm.Devices().Subset(ids).GetIndices()
+		// Devices is a map; iterating a Subset would scramble the order of
+		// per-GPU memory limits supplied by Volcano's allocation annotation.
+		byUUID := make(map[string]string)
+		for _, device := range plugin.rm.Devices() {
+			byUUID[device.GetUUID()] = device.Index
+		}
+		for _, id := range rm.AnnotatedIDs(ids).GetIDs() {
+			index, ok := byUUID[id]
+			if !ok {
+				return nil, fmt.Errorf("Volcano-assigned GPU %q is not registered on this node", id)
+			}
+			deviceIDs = append(deviceIDs, index)
+		}
 	}
 	var uniqueIDs []string
 	seen := make(map[string]bool)
@@ -648,7 +654,36 @@ func (plugin *nvidiaDevicePlugin) uniqueDeviceIDsFromAnnotatedDeviceIDs(ids []st
 		seen[id] = true
 		uniqueIDs = append(uniqueIDs, id)
 	}
-	return uniqueIDs
+	return uniqueIDs, nil
+}
+
+func validateVolcanoDeviceLimits(devices util.ContainerDevices) error {
+	if len(devices) == 0 {
+		return errors.New("Volcano assigned no GPUs to the container")
+	}
+	seen := make(map[string]bool, len(devices))
+	for _, device := range devices {
+		if seen[device.UUID] {
+			// NVIDIA_VISIBLE_DEVICES deduplicates physical GPUs, while memory
+			// limits are positional. Refuse to silently pair them incorrectly.
+			return fmt.Errorf("Volcano assigned GPU %q more than once to one container", device.UUID)
+		}
+		seen[device.UUID] = true
+		if device.Usedcores != devices[0].Usedcores {
+			// HAMi-core exposes one SM limit per container, not per GPU.
+			return errors.New("Volcano assigned different GPU core limits within one container")
+		}
+	}
+	return nil
+}
+
+// The positions of these limits must match NVIDIA_VISIBLE_DEVICES, whose
+// physical GPU order is taken from the same Volcano annotation.
+func applyVolcanoDeviceLimits(response *pluginapi.ContainerAllocateResponse, devices util.ContainerDevices) {
+	for i, device := range devices {
+		response.Envs[fmt.Sprintf("CUDA_DEVICE_MEMORY_LIMIT_%d", i)] = fmt.Sprintf("%dm", device.Usedmem*int32(config.GPUMemoryFactor))
+	}
+	response.Envs["CUDA_DEVICE_SM_LIMIT"] = fmt.Sprint(devices[0].Usedcores)
 }
 
 func (plugin *nvidiaDevicePlugin) apiDevices() []*pluginapi.Device {
