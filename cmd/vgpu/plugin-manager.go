@@ -31,7 +31,7 @@ import (
 )
 
 // GetPlugins returns a set of plugins for the specified configuration.
-func GetPlugins(ctx context.Context, infolib info.Interface, nvmllib nvml.Interface, devicelib device.Interface, config *spec.Config, o *options) ([]plugin.Interface, error) {
+func GetPlugins(ctx context.Context, infolib info.Interface, nvmllib nvml.Interface, devicelib device.Interface, config *spec.Config, o *options, prepareVGPUCache func(string, string) (string, error)) ([]plugin.Interface, error) {
 	// TODO: We could consider passing this as an argument since it should already be used to construct nvmllib.
 	driverRoot := root(*config.Flags.Plugin.ContainerDriverRoot)
 
@@ -67,6 +67,7 @@ func GetPlugins(ctx context.Context, infolib info.Interface, nvmllib nvml.Interf
 	plugins, err := plugin.New(ctx, infolib, nvmllib, devicelib,
 		plugin.WithCDIHandler(cdiHandler),
 		plugin.WithConfig(config),
+		plugin.WithVGPUCachePreparer(prepareVGPUCache),
 		plugin.WithDeviceListStrategies(deviceListStrategies),
 		plugin.WithFailOnInitError(*config.Flags.FailOnInitError),
 		plugin.WithImexChannels(imexChannels),

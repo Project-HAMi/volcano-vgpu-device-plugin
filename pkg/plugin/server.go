@@ -76,6 +76,7 @@ func checkDeviceEntries(count int, factor uint) error {
 
 // nvidiaDevicePlugin implements the Kubernetes device plugin API
 type nvidiaDevicePlugin struct {
+	prepareCache func(string, string) (string, error)
 	pluginapi.UnimplementedDevicePluginServer
 	ctx                  context.Context
 	rm                   rm.ResourceManager
@@ -111,6 +112,7 @@ func (o *options) devicePluginForResource(ctx context.Context, resourceManager r
 
 	plugin := nvidiaDevicePlugin{
 		ctx:                  ctx,
+		prepareCache:         o.prepareVGPUCache,
 		rm:                   resourceManager,
 		config:               o.config,
 		deviceListStrategies: o.deviceListStrategies,
@@ -428,12 +430,6 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 			if err != nil {
 				return nil, fmt.Errorf("failed to get allocate response: %v", err)
 			}
-			err = util.EraseNextDeviceTypeFromAnnotation(util.NvidiaGPUDevice, *current)
-			if err != nil {
-				klog.Errorln("Erase annotation failed", err.Error())
-				util.PodAllocationFailed(nodeName, current)
-				return &pluginapi.AllocateResponse{}, err
-			}
 
 			if config.Mode != "mig" {
 				for i, dev := range devreq {
@@ -451,11 +447,15 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 				}
 
 				hostHookPath := os.Getenv("HOOK_PATH")
-				cacheFileHostDirectory := fmt.Sprintf("%s/vgpu/containers/%s_%s", hostHookPath, current.UID, currentCtr.Name)
-				os.RemoveAll(cacheFileHostDirectory)
-
-				os.MkdirAll(cacheFileHostDirectory, 0777)
-				os.Chmod(cacheFileHostDirectory, 0777)
+				if plugin.prepareCache == nil {
+					util.PodAllocationFailed(nodeName, current)
+					return nil, errors.New("vGPU cache manager is not configured")
+				}
+				cacheFileHostDirectory, err := plugin.prepareCache(string(current.UID), currentCtr.Name)
+				if err != nil {
+					util.PodAllocationFailed(nodeName, current)
+					return nil, fmt.Errorf("prepare vGPU cache directory: %w", err)
+				}
 				os.MkdirAll("/tmp/vgpulock", 0777)
 				os.Chmod("/tmp/vgpulock", 0777)
 
@@ -488,6 +488,12 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 						ReadOnly: true},
 					)
 				}
+			}
+			err = util.EraseNextDeviceTypeFromAnnotation(util.NvidiaGPUDevice, *current)
+			if err != nil {
+				klog.Errorln("Erase annotation failed", err.Error())
+				util.PodAllocationFailed(nodeName, current)
+				return &pluginapi.AllocateResponse{}, err
 			}
 			responses.ContainerResponses = append(responses.ContainerResponses, response)
 		}

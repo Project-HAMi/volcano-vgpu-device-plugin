@@ -76,3 +76,8 @@ func WithImexChannels(imexChannels imex.Channels) Option {
 		m.imexChannels = imexChannels
 	}
 }
+
+// WithVGPUCachePreparer supplies the process-owned cache directory preparer.
+func WithVGPUCachePreparer(prepare func(string, string) (string, error)) Option {
+	return func(o *options) { o.prepareVGPUCache = prepare }
+}

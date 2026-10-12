@@ -17,6 +17,7 @@ limitations under the License.
 package nvidia
 
 import (
+	"context"
 	"encoding/binary"
 	"os"
 	"path/filepath"
@@ -113,4 +114,14 @@ func TestMappedUsageHeldUntilUnlock(t *testing.T) {
 	l.Close()
 	require.Empty(t, l.containers)
 	require.Error(t, syscall.Munmap(old.data))
+}
+
+func TestMonitorLeavesOrphanDirectoryForPlugin(t *testing.T) {
+	l, path := newLifecycleLister(t)
+	require.NoError(t, l.clientset.CoreV1().Pods("default").Delete(context.Background(), "pod", metav1.DeleteOptions{}))
+	old := time.Now().Add(-10 * time.Minute)
+	require.NoError(t, os.Chtimes(filepath.Dir(path), old, old))
+	require.NoError(t, l.Update())
+	require.Empty(t, l.containers)
+	require.FileExists(t, path)
 }

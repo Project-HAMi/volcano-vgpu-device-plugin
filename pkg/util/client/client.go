@@ -56,6 +56,7 @@ func NewClient() (kubernetes.Interface, error) {
 		config, err = rest.InClusterConfig()
 		if err != nil {
 			klog.Errorf("InClusterConfig Failed for err:%s", err.Error())
+			return nil, err
 		}
 	}
 	KubeClient, err := kubernetes.NewForConfig(config)

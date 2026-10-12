@@ -32,9 +32,10 @@ import (
 )
 
 type options struct {
-	infolib   info.Interface
-	nvmllib   nvml.Interface
-	devicelib device.Interface
+	prepareVGPUCache func(string, string) (string, error)
+	infolib          info.Interface
+	nvmllib          nvml.Interface
+	devicelib        device.Interface
 
 	failOnInitError bool
 

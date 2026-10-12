@@ -99,8 +99,16 @@ func NewContainerLister() (*ContainerLister, error) {
 		klog.Errorf("Failed to build clientset: %v", err)
 		return nil, err
 	}
+	containerPath := os.Getenv("HAMI_VGPU_CACHE_ROOT")
+	if containerPath == "" {
+		containerPath = filepath.Join(hookPath, "vgpu", "containers")
+	}
+	containerPath = filepath.Clean(containerPath)
+	if !filepath.IsAbs(containerPath) || containerPath == string(filepath.Separator) {
+		return nil, fmt.Errorf("vGPU cache root must be an absolute non-root path: %q", containerPath)
+	}
 	return &ContainerLister{
-		containerPath: filepath.Join(hookPath, "/vgpu/containers"),
+		containerPath: containerPath,
 		containers:    make(map[string]*ContainerUsage),
 		clientset:     clientset,
 	}, nil
@@ -174,7 +182,6 @@ func (l *ContainerLister) Update() error {
 				continue
 			}
 			l.unmapContainer(entry.Name())
-			_ = os.RemoveAll(dirName)
 			continue
 		}
 		if current, ok := l.containers[entry.Name()]; ok {

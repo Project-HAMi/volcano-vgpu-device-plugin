@@ -17,6 +17,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -31,15 +32,19 @@ import (
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/fsnotify/fsnotify"
 	"github.com/urfave/cli/v2"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 
 	spec "volcano.sh/k8s-device-plugin/api/config/v1"
 	"volcano.sh/k8s-device-plugin/pkg/config"
 	"volcano.sh/k8s-device-plugin/pkg/info"
+	"volcano.sh/k8s-device-plugin/pkg/nodepodinformer"
 	"volcano.sh/k8s-device-plugin/pkg/plugin"
 	"volcano.sh/k8s-device-plugin/pkg/rm"
 	"volcano.sh/k8s-device-plugin/pkg/util"
+	"volcano.sh/k8s-device-plugin/pkg/util/client"
+	"volcano.sh/k8s-device-plugin/pkg/vgpucache"
 	"volcano.sh/k8s-device-plugin/pkg/watch"
 )
 
@@ -312,6 +317,26 @@ func start(c *cli.Context, o *options) error {
 
 	util.LoadNvidiaConfig(c)
 
+	processCtx, cancelProcess := context.WithCancel(c.Context)
+	defer cancelProcess()
+	kubeClient, err := client.NewClient()
+	if err != nil {
+		return fmt.Errorf("create cache Pod client: %w", err)
+	}
+	nodePods, err := nodepodinformer.New(kubeClient, os.Getenv("NODE_NAME"))
+	if err != nil {
+		return fmt.Errorf("create device-plugin node Pod informer: %w", err)
+	}
+	listLiveNodePods := func() ([]*corev1.Pod, error) { return nodePods.ListFresh(processCtx) }
+	cacheManager, err := vgpucache.New(resolveVGPUCacheConfig(), nodePods.List, listLiveNodePods)
+	if err != nil {
+		return fmt.Errorf("create vGPU cache manager: %w", err)
+	}
+	nodePods.Start(processCtx)
+	cacheDone := make(chan struct{})
+	go func() { defer close(cacheDone); cacheManager.Run(processCtx) }()
+	defer func() { cancelProcess(); <-cacheDone }()
+
 	var started bool
 	var restartTimeout <-chan time.Time
 	var plugins []plugin.Interface
@@ -325,7 +350,7 @@ restart:
 	}
 
 	klog.Info("Starting Plugins.")
-	plugins, restartPlugins, err := startPlugins(c, o)
+	plugins, restartPlugins, err := startPlugins(processCtx, c, o, cacheManager.Prepare)
 	if err != nil {
 		return fmt.Errorf("error starting plugins: %v", err)
 	}
@@ -379,7 +404,7 @@ exit:
 	return nil
 }
 
-func startPlugins(c *cli.Context, o *options) ([]plugin.Interface, bool, error) {
+func startPlugins(processCtx context.Context, c *cli.Context, o *options, prepareVGPUCache func(string, string) (string, error)) ([]plugin.Interface, bool, error) {
 	// Load the configuration file
 	klog.Info("Loading configuration.")
 	config, err := loadConfig(c, o.flags)
@@ -422,7 +447,7 @@ func startPlugins(c *cli.Context, o *options) ([]plugin.Interface, bool, error) 
 
 	// Get the set of plugins.
 	klog.Info("Retrieving plugins.")
-	plugins, err := GetPlugins(c.Context, infolib, nvmllib, devicelib, config, o)
+	plugins, err := GetPlugins(processCtx, infolib, nvmllib, devicelib, config, o, prepareVGPUCache)
 	if err != nil {
 		return nil, false, fmt.Errorf("error getting plugins: %v", err)
 	}
