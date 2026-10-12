@@ -102,6 +102,9 @@ deviceConfig:
 nodeConfig:
   enabled: true
   configs:
+    # A rule must use either an exact node name, "*" as the fallback, or a
+    # non-empty Kubernetes label selector. Matching selector rules are applied
+    # in list order; a node-name rule takes precedence over selector rules.
     - name: "aio-node67"
       operatingmode: "hami-core"
       devicememoryscaling: 1.8
@@ -110,6 +113,14 @@ nodeConfig:
       filterdevices:
         uuid: []
         index: []
+    # Example selector rule (replace the label with one assigned to your nodes):
+    # - nodelabelselector:
+    #     matchLabels:
+    #       gpu-pool: high-memory
+    #   devicecorescaling: 1.5
+    # Example fallback, applied only when no exact-name or label rule matches:
+    # - name: "*"
+    #   operatingmode: "hami-core"
 
 # RBAC configuration
 rbac:

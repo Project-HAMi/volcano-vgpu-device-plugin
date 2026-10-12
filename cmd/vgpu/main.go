@@ -310,7 +310,9 @@ func start(c *cli.Context, o *options) error {
 	klog.Info("Starting OS watcher.")
 	sigs := watch.Signals(syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
-	util.LoadNvidiaConfig(c)
+	if _, err := util.LoadNvidiaConfig(c); err != nil {
+		return fmt.Errorf("failed to load NVIDIA configuration: %w", err)
+	}
 
 	var started bool
 	var restartTimeout <-chan time.Time

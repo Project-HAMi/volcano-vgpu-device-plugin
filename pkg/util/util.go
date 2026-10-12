@@ -36,6 +36,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
@@ -668,7 +669,7 @@ func ExtractMigTemplatesFromUUID(uuid string) (string, int, error) {
 	return templateGroupName, pos, nil
 }
 
-func LoadNvidiaConfig(c *cli.Context) *config.NvidiaConfig {
+func LoadNvidiaConfig(c *cli.Context) (*config.NvidiaConfig, error) {
 	config.PassDeviceSpecs = c.Bool("pass-device-specs")
 	config.DeviceSplitCount = c.Uint("device-split-count")
 	config.GPUMemoryFactor = c.Uint("gpu-memory-factor")
@@ -699,7 +700,7 @@ func LoadNvidiaConfig(c *cli.Context) *config.NvidiaConfig {
 		nvidiaConfig.GPUMemoryFactor = config.GPUMemoryFactor
 	}
 	if err := readFromConfigFile(&nvidiaConfig); err != nil {
-		klog.InfoS("readFrom device cm error", err.Error())
+		return nil, fmt.Errorf("read node configuration: %w", err)
 	}
 	klog.Infoln("Loaded config=", nvidiaConfig)
 	// Sync the loaded config back to global variables so that
@@ -715,13 +716,16 @@ func LoadNvidiaConfig(c *cli.Context) *config.NvidiaConfig {
 
 	config.SchedulerConfig = nvidiaConfig
 
-	return &nvidiaConfig
+	return &nvidiaConfig, nil
 }
 
 func readFromConfigFile(sConfig *config.NvidiaConfig) error {
 	config.Mode = "hami-core"
 	jsonbyte, err := os.ReadFile("/config/config.json")
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
 		return err
 	}
 	var deviceConfigs config.DevicePluginConfigs
@@ -730,28 +734,123 @@ func readFromConfigFile(sConfig *config.NvidiaConfig) error {
 		return err
 	}
 	klog.Infof("Device Plugin Configs: %v", fmt.Sprintf("%v", deviceConfigs))
-	for _, val := range deviceConfigs.Nodeconfig {
-		if os.Getenv("NODE_NAME") == val.Name {
-			klog.Infof("Reading config from file %s", val.Name)
-			if val.Devicememoryscaling > 0 {
-				sConfig.DeviceMemoryScaling = val.Devicememoryscaling
+	if err := validateNodeConfigs(deviceConfigs.Nodeconfig); err != nil {
+		return err
+	}
+	nodeName := os.Getenv("NODE_NAME")
+	var nodeLabels map[string]string
+	if hasNodeLabelSelector(deviceConfigs.Nodeconfig) {
+		if nodeName == "" {
+			return fmt.Errorf("NODE_NAME is required when node label selectors are configured")
+		}
+		cs, err := client.NewClient()
+		if err != nil {
+			return fmt.Errorf("create Kubernetes client for node label selection: %w", err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), deviceConfigLookupTimeout)
+		nodeLabels, err = getNodeLabels(ctx, cs, nodeName)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("read labels from Kubernetes node %q for node label selection: %w", nodeName, err)
+		}
+	}
+	selected, err := selectNodeConfigs(deviceConfigs.Nodeconfig, nodeName, nodeLabels)
+	if err != nil {
+		return err
+	}
+	applyNodeConfigs(sConfig, selected)
+	return nil
+}
+
+func getNodeLabels(ctx context.Context, cs kubernetes.Interface, nodeName string) (map[string]string, error) {
+	node, err := cs.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return node.Labels, nil
+}
+
+func validateNodeConfigs(entries []config.NodeConfig) error {
+	for i, entry := range entries {
+		hasSelector := entry.NodeLabelSelector != nil
+		switch {
+		case hasSelector && entry.Name != "":
+			return fmt.Errorf("nodeconfig[%d]: set either name or nodelabelselector, not both", i)
+		case hasSelector:
+			selector := entry.NodeLabelSelector
+			if len(selector.MatchLabels) == 0 && len(selector.MatchExpressions) == 0 {
+				return fmt.Errorf("nodeconfig[%d]: nodelabelselector must not be empty", i)
 			}
-			if val.Devicecorescaling > 0 {
-				sConfig.DeviceCoreScaling = val.Devicecorescaling
+			if _, err := metav1.LabelSelectorAsSelector(selector); err != nil {
+				return fmt.Errorf("nodeconfig[%d]: invalid nodelabelselector: %w", i, err)
 			}
-			if val.Devicesplitcount > 0 {
-				sConfig.DeviceSplitCount = val.Devicesplitcount
-			}
-			if val.FilterDevice != nil && (len(val.FilterDevice.UUID) > 0 || len(val.FilterDevice.Index) > 0) {
-				config.DevicePluginFilterDevice = val.FilterDevice
-			}
-			if len(val.OperatingMode) > 0 {
-				config.Mode = val.OperatingMode
-			}
-			klog.Infof("FilterDevice: %v", val.FilterDevice)
+		case entry.Name == "":
+			return fmt.Errorf("nodeconfig[%d]: name is required unless nodelabelselector is set", i)
 		}
 	}
 	return nil
+}
+
+func applyNodeConfigs(sConfig *config.NvidiaConfig, selected []config.NodeConfig) {
+	for _, val := range selected {
+		klog.Infof("Applying node configuration %q", val.Name)
+		if val.Devicememoryscaling != nil && *val.Devicememoryscaling > 0 {
+			sConfig.DeviceMemoryScaling = *val.Devicememoryscaling
+		}
+		if val.Devicecorescaling != nil && *val.Devicecorescaling > 0 {
+			sConfig.DeviceCoreScaling = *val.Devicecorescaling
+		}
+		if val.Devicesplitcount != nil && *val.Devicesplitcount > 0 {
+			sConfig.DeviceSplitCount = *val.Devicesplitcount
+		}
+		if val.FilterDevice != nil && (len(val.FilterDevice.UUID) > 0 || len(val.FilterDevice.Index) > 0) {
+			config.DevicePluginFilterDevice = val.FilterDevice
+		}
+		if val.OperatingMode != "" {
+			config.Mode = val.OperatingMode
+		}
+		klog.Infof("FilterDevice: %v", val.FilterDevice)
+	}
+}
+
+func hasNodeLabelSelector(entries []config.NodeConfig) bool {
+	for _, entry := range entries {
+		if entry.NodeLabelSelector != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// selectNodeConfigs validates every rule and returns the selected overlays in
+// application order. Exact node-name rules take precedence over label rules;
+// matching label rules are applied in source order, then the explicit wildcard
+// fallback is considered only when neither higher-priority tier matches.
+func selectNodeConfigs(entries []config.NodeConfig, nodeName string, nodeLabels map[string]string) ([]config.NodeConfig, error) {
+	if err := validateNodeConfigs(entries); err != nil {
+		return nil, err
+	}
+	var exact, matchingLabels, fallback []config.NodeConfig
+	for _, entry := range entries {
+		hasSelector := entry.NodeLabelSelector != nil
+		if hasSelector {
+			compiled, _ := metav1.LabelSelectorAsSelector(entry.NodeLabelSelector)
+			if compiled.Matches(labels.Set(nodeLabels)) {
+				matchingLabels = append(matchingLabels, entry)
+			}
+		} else if entry.Name == "*" {
+			fallback = append(fallback, entry)
+		} else if entry.Name == nodeName {
+			exact = append(exact, entry)
+		}
+	}
+	if len(exact) > 0 {
+		return exact, nil
+	}
+	if len(matchingLabels) > 0 {
+		return matchingLabels, nil
+	}
+	return fallback, nil
 }
 
 func CheckCDISpecFile(filePath, kind string) error {

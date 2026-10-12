@@ -161,6 +161,23 @@ Install the chart:
 helm install volcano-vgpu-device-plugin volcano-vgpu-device-plugin/volcano-vgpu-device-plugin
 ```
 
+Per-node settings can be selected by node name or Kubernetes labels in the chart's `nodeConfig.configs`. Each rule must set exactly one of `name` or `nodelabelselector`; use `name: "*"` for an explicit fallback. A label selector uses the Kubernetes `LabelSelector` structure (`matchLabels` and/or `matchExpressions`). For example:
+
+```yaml
+nodeConfig:
+  configs:
+    - nodelabelselector:
+        matchLabels:
+          gpu-pool: high-memory
+      devicecorescaling: 1.5
+    - name: "*"
+      operatingmode: hami-core
+```
+
+An exact node-name rule has priority over matching label rules. If there is no exact-name match, all matching label rules are applied in list order; later rules override only the positive/non-empty settings they provide. For per-node numeric settings, `0` is treated as unset, not as a request to reset an earlier or global value; empty strings and empty filter lists are also no-ops. The wildcard rule is used only when no exact-name or label rule matches, and otherwise the device ConfigMap values remain the defaults. Empty or invalid selectors and rules that set both or neither selector are configuration errors; the plugin fails to start and reports the rule index. When any label selector is configured, the plugin reads the local node's labels from the Kubernetes API at startup; API lookup failures also stop startup. Restart the device-plugin Pod after changing node labels or this configuration.
+
+These settings affect the device information the plugin reports through the existing Volcano node-registration annotation. They do not require changes to Volcano or its device-allocation protocol.
+
 If you want to enable CDI, you can use the following command to install.
 ```
 helm install volcano-vgpu-device-plugin volcano-vgpu-device-plugin/volcano-vgpu-device-plugin \
