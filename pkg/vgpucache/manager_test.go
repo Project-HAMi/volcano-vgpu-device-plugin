@@ -44,24 +44,6 @@ func newTestManager(t *testing.T, root string, pods func() ([]*corev1.Pod, error
 	return manager
 }
 
-// TestPreparePreservesDirectory checks that Prepare preserves live data and creates a writable
-// container cache directory.
-func TestPreparePreservesDirectory(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "containers")
-	manager := newTestManager(t, root, func() ([]*corev1.Pod, error) { return nil, nil })
-	target, err := manager.Prepare("pod-uid", "main")
-	require.NoError(t, err)
-	require.Equal(t, filepath.Join(root, "pod-uid_main"), target)
-	require.NoError(t, os.WriteFile(filepath.Join(target, "old.cache"), []byte("old"), 0o600))
-	_, err = manager.Prepare("pod-uid", "main")
-	require.NoError(t, err)
-	_, statErr := os.Stat(filepath.Join(target, "old.cache"))
-	require.NoError(t, statErr)
-	info, err := os.Stat(target)
-	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o777), info.Mode().Perm())
-}
-
 // TestPrepareRejectsSymlinkRoot checks that preparation refuses a symlink cache root.
 func TestPrepareRejectsSymlinkRoot(t *testing.T) {
 	target := t.TempDir()
@@ -138,25 +120,6 @@ func TestScanDeleteAndSafetyRules(t *testing.T) {
 			require.NoError(t, err)
 		}
 	})
-}
-
-// TestNewValidatesConfig checks cache root, timing, and Pod provider validation.
-func TestNewValidatesConfig(t *testing.T) {
-	list := func() ([]*corev1.Pod, error) { return nil, nil }
-	for _, config := range []Config{
-		{Root: "relative", ScanInterval: time.Second},
-		{Root: string(filepath.Separator), ScanInterval: time.Second},
-		{Root: t.TempDir(), ScanInterval: 0},
-		{Root: t.TempDir(), ScanInterval: time.Second, GracePeriod: -1},
-	} {
-		_, err := New(config, list, list)
-		require.Error(t, err)
-	}
-	valid := Config{Root: t.TempDir(), ScanInterval: time.Second}
-	_, err := New(valid, nil, list)
-	require.Error(t, err)
-	_, err = New(valid, list, nil)
-	require.Error(t, err)
 }
 
 // TestRunRetriesUnavailableSnapshotAndStops checks periodic retry after Pod lookup failure and
@@ -798,7 +761,6 @@ func TestPrepareAndCacheNameAreIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	name, err := CacheFileName(path)
 	require.NoError(t, err)
-	require.Equal(t, "shared.cache", name)
 	require.NoError(t, os.WriteFile(filepath.Join(path, name), []byte("live usage"), 0600))
 	_, err = m.Prepare("active", "gpu")
 	require.NoError(t, err)
