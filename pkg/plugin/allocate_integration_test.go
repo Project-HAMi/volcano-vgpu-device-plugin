@@ -38,6 +38,9 @@ import (
 func newIntegratedVolcanoTestPlugin(t *testing.T, pod *corev1.Pod) (*nvidiaDevicePlugin, *testPodOps) {
 	t.Helper()
 	plugin, ops := newVolcanoTestPlugin(t, pod)
+	if plugin.cacheManager != nil {
+		return plugin, ops
+	}
 	list := func() ([]*corev1.Pod, error) { return []*corev1.Pod{pod}, nil }
 	manager, err := vgpucache.New(vgpucache.Config{Root: filepath.Join(os.Getenv("HOOK_PATH"), "vgpu", "containers"), ScanInterval: time.Second}, list, list)
 	require.NoError(t, err)
