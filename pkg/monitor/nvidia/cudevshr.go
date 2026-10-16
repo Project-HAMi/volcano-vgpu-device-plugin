@@ -82,6 +82,10 @@ type ContainerLister struct {
 	mutex         sync.Mutex
 	clientset     kubernetes.Interface
 	closeOnce     sync.Once
+	// listNodePods, when set, supplies the node Pod snapshot for Update and
+	// metrics. Production wires a node-scoped informer so the 5s feedback loop
+	// does not List Pods from the API server on every tick.
+	listNodePods func() ([]*corev1.Pod, error)
 }
 
 func NewContainerLister() (*ContainerLister, error) {
@@ -133,16 +137,36 @@ func (l *ContainerLister) Clientset() kubernetes.Interface {
 	return l.clientset
 }
 
-func (l *ContainerLister) Update() error {
-	// Scope pod listing to this node to avoid cluster-wide API calls on every
-	// scrape. NODE_NAME is injected via the Downward API in the official manifest.
-	// Fall back to listing all pods if unset to preserve backward compatibility
-	// with custom deployments that may not have NODE_NAME configured.
+// UseNodePodList installs a cached node Pod snapshot provider (typically a
+// node-scoped informer List). Call before Update or metrics collection.
+func (l *ContainerLister) UseNodePodList(list func() ([]*corev1.Pod, error)) {
+	l.listNodePods = list
+}
+
+// ListNodePods returns the current node Pod snapshot. Prefer the injected
+// informer cache; fall back to a node-scoped API List when unset (tests and
+// deployments without NODE_NAME / informer wiring).
+func (l *ContainerLister) ListNodePods() ([]*corev1.Pod, error) {
+	if l.listNodePods != nil {
+		return l.listNodePods()
+	}
 	listOptions := metav1.ListOptions{}
 	if nodeName := os.Getenv("NODE_NAME"); nodeName != "" {
 		listOptions.FieldSelector = "spec.nodeName=" + nodeName
 	}
 	pods, err := l.clientset.CoreV1().Pods("").List(context.Background(), listOptions)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*corev1.Pod, 0, len(pods.Items))
+	for i := range pods.Items {
+		result = append(result, &pods.Items[i])
+	}
+	return result, nil
+}
+
+func (l *ContainerLister) Update() error {
+	pods, err := l.ListNodePods()
 	if err != nil {
 		return err
 	}
@@ -158,9 +182,11 @@ func (l *ContainerLister) Update() error {
 		return err
 	}
 
-	podUIDs := make(map[string]bool, len(pods.Items))
-	for _, pod := range pods.Items {
-		podUIDs[string(pod.UID)] = true
+	podUIDs := make(map[string]bool, len(pods))
+	for _, pod := range pods {
+		if pod != nil {
+			podUIDs[string(pod.UID)] = true
+		}
 	}
 
 	present := make(map[string]struct{}, len(entries))

@@ -22,8 +22,10 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"volcano.sh/k8s-device-plugin/pkg/monitor/nvidia"
+	"volcano.sh/k8s-device-plugin/pkg/nodepodinformer"
 
 	"k8s.io/klog/v2"
 )
@@ -53,6 +55,10 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	if err := wireNodePodInformer(ctx, containerLister); err != nil {
+		klog.Fatalf("Failed to start node Pod informer: %v", err)
+	}
+
 	errchannel := make(chan error)
 	go initMetrics(containerLister)
 	go watchAndFeedback(containerLister)
@@ -64,4 +70,28 @@ func main() {
 			klog.Errorf("failed to serve: %v", err)
 		}
 	}
+}
+
+// wireNodePodInformer attaches a node-scoped Pod informer so Update/metrics read
+// the local cache instead of Listing Pods from the API server every feedback tick.
+// When NODE_NAME is unset, ListNodePods keeps its API List fallback.
+func wireNodePodInformer(ctx context.Context, containerLister *nvidia.ContainerLister) error {
+	nodeName := os.Getenv("NODE_NAME")
+	if nodeName == "" {
+		klog.Warning("NODE_NAME unset; monitor will List Pods from the API server on each Update")
+		return nil
+	}
+	nodePods, err := nodepodinformer.New(containerLister.Clientset(), nodeName)
+	if err != nil {
+		return err
+	}
+	nodePods.Start(ctx)
+	syncCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := nodePods.WaitForSync(syncCtx); err != nil {
+		return err
+	}
+	containerLister.UseNodePodList(nodePods.List)
+	klog.InfoS("Monitor node Pod informer synced", "node", nodeName)
+	return nil
 }

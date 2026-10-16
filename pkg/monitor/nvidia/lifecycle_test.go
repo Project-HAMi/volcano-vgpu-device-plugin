@@ -125,3 +125,26 @@ func TestMonitorLeavesOrphanDirectoryForPlugin(t *testing.T) {
 	require.Empty(t, l.containers)
 	require.FileExists(t, path)
 }
+
+func TestUpdateUsesInjectedNodePodListWithoutAPI(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "uid_main")
+	require.NoError(t, os.Mkdir(dir, 0755))
+	writeLifecycleCache(t, filepath.Join(dir, "x.cache"))
+
+	apiCalls := 0
+	l := &ContainerLister{
+		containerPath: root,
+		containers:    map[string]*ContainerUsage{},
+		// nil clientset would panic on the API fallback; the injected list must win.
+		clientset: nil,
+	}
+	t.Cleanup(l.Close)
+	l.UseNodePodList(func() ([]*corev1.Pod, error) {
+		apiCalls++
+		return []*corev1.Pod{{ObjectMeta: metav1.ObjectMeta{UID: "uid"}}}, nil
+	})
+	require.NoError(t, l.Update())
+	require.Len(t, l.containers, 1)
+	require.Equal(t, 1, apiCalls)
+}

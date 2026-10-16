@@ -31,9 +31,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/informers"
-	listerscorev1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 )
 
@@ -51,7 +48,6 @@ import (
 type ClusterManager struct {
 	Zone string
 	// Contains many more fields not listed in this example.
-	PodLister       listerscorev1.PodLister
 	containerLister *nvidia.ContainerLister
 }
 
@@ -184,7 +180,7 @@ func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 	}
 
-	pods, err := cc.ClusterManager.PodLister.List(labels.Everything())
+	pods, err := containerLister.ListNodePods()
 	if err != nil {
 		klog.Error("failed to list pods with err=", err.Error())
 	}
@@ -194,6 +190,9 @@ func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
 	defer containerLister.UnLock()
 	containers := containerLister.ListContainers()
 	for _, pod := range pods {
+		if pod == nil {
+			continue
+		}
 		for _, c := range containers {
 			//for sridx := range srPodList {
 			//	if srPodList[sridx].sr == nil {
@@ -295,11 +294,6 @@ func NewClusterManager(zone string, reg prometheus.Registerer, containerLister *
 		Zone:            zone,
 		containerLister: containerLister,
 	}
-
-	informerFactory := informers.NewSharedInformerFactoryWithOptions(containerLister.Clientset(), time.Hour*1)
-	c.PodLister = informerFactory.Core().V1().Pods().Lister()
-	stopCh := make(chan struct{})
-	informerFactory.Start(stopCh)
 
 	cc := ClusterManagerCollector{ClusterManager: c}
 	prometheus.WrapRegistererWith(prometheus.Labels{"zone": zone}, reg).MustRegister(cc)
