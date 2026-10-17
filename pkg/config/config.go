@@ -50,8 +50,8 @@ var (
 	nvmlOnce    sync.Once
 	nvmlLibPath string
 
-	lock         sync.Mutex
-	globalDevice device.Interface
+	globalDevice     device.Interface
+	globalDeviceOnce sync.Once
 )
 
 var (
@@ -77,18 +77,9 @@ func Nvml() nvml.Interface {
 }
 
 func Device() device.Interface {
-	if globalDevice != nil {
-		return globalDevice
-	}
-
-	lock.Lock()
-	defer lock.Unlock()
-
-	if globalDevice != nil {
-		return globalDevice
-	}
-
-	globalDevice = device.New(Nvml())
+	globalDeviceOnce.Do(func() {
+		globalDevice = device.New(Nvml())
+	})
 	return globalDevice
 }
 
