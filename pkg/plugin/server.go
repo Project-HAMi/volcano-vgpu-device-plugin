@@ -42,6 +42,7 @@ import (
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v2"
 
@@ -615,17 +616,24 @@ func (plugin *nvidiaDevicePlugin) PreStartContainer(context.Context, *pluginapi.
 func (plugin *nvidiaDevicePlugin) dial(unixSocketPath string, timeout time.Duration) (*grpc.ClientConn, error) {
 	ctx, cancel := context.WithTimeout(plugin.ctx, timeout)
 	defer cancel()
-	//nolint:staticcheck  // TODO: Switch to grpc.NewClient
-	c, err := grpc.DialContext(ctx, unixSocketPath,
+	// passthrough keeps the socket path as the address handed to the dialer.
+	c, err := grpc.NewClient("passthrough:///"+unixSocketPath,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		//nolint:staticcheck  // TODO: WithBlock is deprecated.
-		grpc.WithBlock(),
 		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "unix", addr)
 		}),
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	// NewClient connects lazily; wait for the connection like WithBlock did.
+	c.Connect()
+	for state := c.GetState(); state != connectivity.Ready; state = c.GetState() {
+		if !c.WaitForStateChange(ctx, state) {
+			_ = c.Close()
+			return nil, ctx.Err()
+		}
 	}
 
 	return c, nil
