@@ -1,6 +1,6 @@
 module volcano.sh/k8s-device-plugin
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/NVIDIA/go-gpuallocator v0.6.0
@@ -64,7 +64,7 @@ require (
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/term v0.46.0 // indirect
