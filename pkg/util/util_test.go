@@ -181,3 +181,91 @@ func TestDecodeNodeDevicesOutOfRange(t *testing.T) {
 		t.Fatalf("out-of-range values must clamp, not wrap: count=%d devmem=%d", got[0].Count, got[0].Devmem)
 	}
 }
+
+func pendingPod(name, node, devs string, annos map[string]string) v1.Pod {
+	a := map[string]string{AssignedNodeAnnotations: node, AssignedIDsToAllocateAnnotations: devs}
+	for k, v := range annos {
+		a[k] = v
+	}
+	return v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Annotations: a},
+		Status:     v1.PodStatus{Phase: v1.PodPending},
+	}
+}
+
+func TestGetOldestPod(t *testing.T) {
+	const (
+		small = "GPU-a,NVIDIA,683,30:;"
+		big   = "GPU-a,NVIDIA,1366,30:;"
+	)
+	at := func(vt, bt string) map[string]string {
+		return map[string]string{AssignedTimeAnnotations: vt, BindTimeAnnotations: bt}
+	}
+	done := pendingPod("done", "n1", small, at("1", "1"))
+	done.Annotations[DeviceBindPhase] = DeviceBindSuccess
+	failed := pendingPod("failed", "n1", small, at("1", "1"))
+	failed.Annotations[DeviceBindPhase] = DeviceBindFailed
+	running := pendingPod("running", "n1", small, at("1", "1"))
+	running.Status.Phase = v1.PodRunning
+
+	tests := []struct {
+		name    string
+		pods    []v1.Pod
+		want    string
+		wantErr bool
+	}{
+		{"no pods", nil, "", false},
+		{"other node", []v1.Pod{pendingPod("a", "n2", small, at("1", "1"))}, "", false},
+		{"device count mismatch", []v1.Pod{pendingPod("a", "n1", small+"GPU-b,NVIDIA,1,1:;", at("1", "1"))}, "", false},
+		{"older vgpu-time wins", []v1.Pod{
+			pendingPod("new", "n1", big, at("5", "5")),
+			pendingPod("old", "n1", small, at("4", "9")),
+		}, "old", false},
+		{"bind-time breaks vgpu-time tie", []v1.Pod{
+			pendingPod("late", "n1", big, at("5", "7")),
+			pendingPod("early", "n1", small, at("5", "6")),
+		}, "early", false},
+		{"allocation already done is skipped", []v1.Pod{
+			done, failed, running,
+			pendingPod("live", "n1", big, at("9", "9")),
+		}, "live", false},
+		{"only finished pods", []v1.Pod{done, failed, running}, "", false},
+		{"tie with different devices is ambiguous", []v1.Pod{
+			pendingPod("a", "n1", small, at("5", "5")),
+			pendingPod("b", "n1", big, at("5", "5")),
+		}, "", true},
+		{"missing timestamps tie is ambiguous", []v1.Pod{
+			pendingPod("a", "n1", small, nil),
+			pendingPod("b", "n1", big, nil),
+		}, "", true},
+		{"tie with identical devices is fine", []v1.Pod{
+			pendingPod("a", "n1", small, at("5", "5")),
+			pendingPod("b", "n1", small, at("5", "5")),
+		}, "a", false},
+		{"strictly older pod resolves an earlier tie", []v1.Pod{
+			pendingPod("a", "n1", small, at("5", "5")),
+			pendingPod("b", "n1", big, at("5", "5")),
+			pendingPod("c", "n1", big, at("4", "4")),
+		}, "c", false},
+		{"tie behind an older pod is irrelevant", []v1.Pod{
+			pendingPod("c", "n1", big, at("4", "4")),
+			pendingPod("a", "n1", small, at("5", "5")),
+			pendingPod("b", "n1", big, at("5", "5")),
+		}, "c", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := getOldestPod(tt.pods, "n1", 1)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			gotName := ""
+			if got != nil {
+				gotName = got.Name
+			}
+			if gotName != tt.want {
+				t.Fatalf("got %q, want %q", gotName, tt.want)
+			}
+		})
+	}
+}
