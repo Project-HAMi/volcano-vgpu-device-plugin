@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM ubuntu:20.04 AS builder
+FROM ubuntu:25.10 AS builder
 ARG TARGETARCH
 ARG GO_VERSION=1.26.9
 RUN apt-get update
@@ -46,7 +46,7 @@ WORKDIR /libvgpu
 RUN rm -rf /libvgpu/build
 RUN bash ./build.sh
 
-FROM ubuntu:24.04
+FROM ubuntu:25.10
 
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=utility
