@@ -12,7 +12,7 @@ import (
 )
 
 func TestUpdateUsesInjectedPodSnapshot(t *testing.T) {
-	client := fake.NewSimpleClientset()
+	client := fake.NewClientset()
 	lists := 0
 	client.PrependReactor("list", "pods", func(ktesting.Action) (bool, runtime.Object, error) {
 		lists++
