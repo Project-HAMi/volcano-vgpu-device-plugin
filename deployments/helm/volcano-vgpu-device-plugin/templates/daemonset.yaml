@@ -1,3 +1,10 @@
+{{/* nvmlMock and CDI are mutually exclusive: nvmlMock injects its own
+NVIDIA_DRIVER_ROOT/DEVICE_DISCOVERY_STRATEGY which would override CDI's
+driver root and device list strategy. Fail loudly instead of silently
+dropping one of them. */}}
+{{- if and .Values.nvmlMock.enabled .Values.cdi.enabled }}
+{{- fail "nvmlMock.enabled and cdi.enabled are mutually exclusive; the nvml-mock driver root would override the CDI driver root. Disable one of them." }}
+{{- end }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -63,7 +70,18 @@ spec:
           value: {{ .Values.namespace | quote }}
         - name: KLOG_LEVEL
           value: {{ .Values.logging.klogLevel | quote }}
-        {{- if .Values.cdi.enabled }}
+        {{- if .Values.nvmlMock.enabled }}
+        - name: NVIDIA_DRIVER_ROOT
+          value: {{ .Values.nvmlMock.driverRoot }}
+        - name: CONTAINER_DRIVER_ROOT
+          value: {{ .Values.nvmlMock.driverRoot }}
+        - name: NVIDIA_DEV_ROOT
+          value: {{ .Values.nvmlMock.driverRoot }}
+        - name: DEVICE_DISCOVERY_STRATEGY
+          value: "nvml"
+        - name: DP_DISABLE_HEALTHCHECKS
+          value: "all"
+        {{- else if .Values.cdi.enabled }}
         - name: DEVICE_LIST_STRATEGY
           value: {{ .Values.cdi.deviceListStrategy }}
         - name: NVIDIA_DRIVER_ROOT
@@ -92,7 +110,11 @@ spec:
           mountPath: /usr/local/vgpu
         - name: hosttmp
           mountPath: /tmp
-        {{- if .Values.cdi.enabled }}
+        {{- if .Values.nvmlMock.enabled }}
+        - name: mock-root
+          mountPath: {{ .Values.nvmlMock.driverRoot }}
+          readOnly: true
+        {{- else if .Values.cdi.enabled }}
         - name: cdi-root
           mountPath: /var/run/cdi
         - name: driver-root
@@ -102,7 +124,7 @@ spec:
           mountPath: /usrbin
           readOnly: true
         {{- end }}
-      {{- if .Values.monitor.enabled }}
+      {{- if and .Values.monitor.enabled (not .Values.nvmlMock.enabled) }}
       - name: monitor
         image: "{{ .Values.monitor.image.repository }}:{{ .Values.monitor.image.tag }}"
         command:
@@ -165,7 +187,7 @@ spec:
         hostPath:
           path: {{ .Values.hostPaths.tmp }}
           type: DirectoryOrCreate
-      {{- if .Values.monitor.enabled }}
+      {{- if and .Values.monitor.enabled (not .Values.nvmlMock.enabled) }}
       - name: dockers
         hostPath:
           path: {{ .Values.hostPaths.docker }}
@@ -183,7 +205,12 @@ spec:
           path: {{ .Values.hostPaths.var }}
           type: Directory
       {{- end }}
-      {{- if .Values.cdi.enabled }}
+      {{- if .Values.nvmlMock.enabled }}
+      - name: mock-root
+        hostPath:
+          path: {{ .Values.nvmlMock.driverRoot }}
+          type: Directory
+      {{- else if .Values.cdi.enabled }}
       - name: driver-root
         hostPath:
           path: /

@@ -46,10 +46,12 @@ type NvidiaConfig struct {
 }
 
 var (
-	nvmllib = nvml.New()
+	nvmllib     nvml.Interface
+	nvmlOnce    sync.Once
+	nvmlLibPath string
 
-	lock         sync.Mutex
-	globalDevice device.Interface
+	globalDevice     device.Interface
+	globalDeviceOnce sync.Once
 )
 
 var (
@@ -57,19 +59,27 @@ var (
 	DevicePluginFilterDevice *FilterDevice
 )
 
+// SetNvmlLibraryPath configures the library path for the NVML singleton.
+// Must be called before the first call to Nvml().
+func SetNvmlLibraryPath(path string) {
+	nvmlLibPath = path
+}
+
 func Nvml() nvml.Interface {
+	nvmlOnce.Do(func() {
+		if nvmlLibPath != "" {
+			nvmllib = nvml.New(nvml.WithLibraryPath(nvmlLibPath))
+		} else {
+			nvmllib = nvml.New()
+		}
+	})
 	return nvmllib
 }
 
 func Device() device.Interface {
-	if globalDevice != nil {
-		return globalDevice
-	}
-
-	lock.Lock()
-	defer lock.Unlock()
-
-	globalDevice = device.New(nvmllib)
+	globalDeviceOnce.Do(func() {
+		globalDevice = device.New(Nvml())
+	})
 	return globalDevice
 }
 
