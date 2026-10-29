@@ -102,7 +102,7 @@ func parseConfig(configFile string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error opening config file: %v", err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	config, err := parseConfigFrom(reader)
 	if err != nil {

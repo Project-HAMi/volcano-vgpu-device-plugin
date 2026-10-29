@@ -33,7 +33,7 @@ func GetMigCapabilityDevicePaths() (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error opening MIG minors file: %v", err)
 	}
-	defer minorsFile.Close()
+	defer func() { _ = minorsFile.Close() }()
 
 	// Define a function to process each each line of nvcapsMigMinorsPath
 	processLine := func(line string) (string, int, error) {

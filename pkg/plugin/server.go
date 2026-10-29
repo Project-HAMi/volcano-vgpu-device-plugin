@@ -203,8 +203,12 @@ func (plugin *nvidiaDevicePlugin) Start(kubeletSocket string) error {
 				klog.Fatalf("nvidia-mig-parted failed with %s\n", err)
 			}
 			outStr := stdout.Bytes()
-			yaml.Unmarshal(outStr, &plugin.migCurrent)
-			os.WriteFile("/tmp/migconfig.yaml", outStr, os.ModePerm)
+			if err := yaml.Unmarshal(outStr, &plugin.migCurrent); err != nil {
+				klog.Errorf("unmarshal mig config failed: %v", err)
+			}
+			if err := os.WriteFile("/tmp/migconfig.yaml", outStr, os.ModePerm); err != nil {
+				klog.Errorf("write mig config failed: %v", err)
+			}
 			hamiInitMigConfig, err := plugin.processMigConfigs(plugin.migCurrent.MigConfigs, deviceNumbers)
 			if err != nil {
 				klog.Infof("no device in node:%v", err)
@@ -234,7 +238,7 @@ func (plugin *nvidiaDevicePlugin) Stop() error {
 
 // Serve starts the gRPC server of the device plugin.
 func (plugin *nvidiaDevicePlugin) Serve() error {
-	os.Remove(plugin.socket)
+	_ = os.Remove(plugin.socket)
 	sock, err := net.Listen("unix", plugin.socket)
 	if err != nil {
 		return err
@@ -279,7 +283,7 @@ func (plugin *nvidiaDevicePlugin) Serve() error {
 	if err != nil {
 		return err
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	return nil
 }
@@ -295,7 +299,7 @@ func (plugin *nvidiaDevicePlugin) Register(kubeletSocket string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	client := pluginapi.NewRegistrationClient(conn)
 	reqt := &pluginapi.RegisterRequest{
@@ -376,12 +380,16 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 	gpuAmount := len(reqs.ContainerRequests[0].DevicesIds)
 	current, err := util.GetPendingPod(nodeName, gpuAmount)
 	if err != nil {
-		nodelock.ReleaseNodeLock(nodeName, util.VGPUDeviceName)
+		if lerr := nodelock.ReleaseNodeLock(nodeName, util.VGPUDeviceName); lerr != nil {
+			klog.Errorf("release node lock failed: %v", lerr)
+		}
 		return &pluginapi.AllocateResponse{}, err
 	}
 	if current == nil {
 		klog.Errorf("no pending pod found on node %s", nodeName)
-		nodelock.ReleaseNodeLock(nodeName, util.VGPUDeviceName)
+		if lerr := nodelock.ReleaseNodeLock(nodeName, util.VGPUDeviceName); lerr != nil {
+			klog.Errorf("release node lock failed: %v", lerr)
+		}
 		return &pluginapi.AllocateResponse{}, errors.New("no pending pod found on node")
 	}
 	klog.V(3).InfoS("Current pending pod.", "UID", current.UID, "pod name", current.Name)
@@ -452,12 +460,18 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 
 				hostHookPath := os.Getenv("HOOK_PATH")
 				cacheFileHostDirectory := fmt.Sprintf("%s/vgpu/containers/%s_%s", hostHookPath, current.UID, currentCtr.Name)
-				os.RemoveAll(cacheFileHostDirectory)
+				if err := os.RemoveAll(cacheFileHostDirectory); err != nil {
+					klog.Errorf("remove %s failed: %v", cacheFileHostDirectory, err)
+				}
 
-				os.MkdirAll(cacheFileHostDirectory, 0777)
-				os.Chmod(cacheFileHostDirectory, 0777)
-				os.MkdirAll("/tmp/vgpulock", 0777)
-				os.Chmod("/tmp/vgpulock", 0777)
+				for _, dir := range []string{cacheFileHostDirectory, "/tmp/vgpulock"} {
+					if err := os.MkdirAll(dir, 0777); err != nil {
+						klog.Errorf("mkdir %s failed: %v", dir, err)
+					}
+					if err := os.Chmod(dir, 0777); err != nil {
+						klog.Errorf("chmod %s failed: %v", dir, err)
+					}
+				}
 
 				response.Mounts = append(response.Mounts,
 					&pluginapi.Mount{ContainerPath: "/usr/local/vgpu/libvgpu.so",
@@ -843,7 +857,9 @@ func (plugin *nvidiaDevicePlugin) ApplyMigTemplate() {
 		klog.Error("marshal failed", err.Error())
 	}
 	klog.Infoln("Applying data=", string(data))
-	os.WriteFile("/tmp/migconfig.yaml", data, os.ModePerm)
+	if err := os.WriteFile("/tmp/migconfig.yaml", data, os.ModePerm); err != nil {
+		klog.Errorf("write mig config failed: %v", err)
+	}
 	cmd := exec.Command("nvidia-mig-parted", "apply", "-f", "/tmp/migconfig.yaml")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

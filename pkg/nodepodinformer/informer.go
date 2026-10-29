@@ -48,7 +48,7 @@ type Informer struct {
 // New constructs a node-scoped Pod informer. Start must be called separately.
 func New(kubeClient kubernetes.Interface, nodeName string) (*Informer, error) {
 	if kubeClient == nil {
-		return nil, errors.New("Kubernetes client is not initialized")
+		return nil, errors.New("kubernetes client is not initialized")
 	}
 	if nodeName == "" {
 		return nil, errors.New("node name is empty")

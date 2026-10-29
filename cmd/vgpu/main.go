@@ -318,7 +318,7 @@ func start(c *cli.Context, o *options) error {
 	if err != nil {
 		return fmt.Errorf("failed to create FS watcher for %s: %v", pluginapi.DevicePluginPath, err)
 	}
-	defer watcher.Close()
+	defer func() { _ = watcher.Close() }()
 
 	klog.Info("Starting OS watcher.")
 	sigs := watch.Signals(syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)

@@ -38,11 +38,11 @@ func setNodeLock(nodeName string, lockName string) error {
 		klog.Errorln("get node failed", err.Error())
 		return err
 	}
-	if _, ok := node.ObjectMeta.Annotations[lockName]; ok {
+	if _, ok := node.Annotations[lockName]; ok {
 		return fmt.Errorf("node %s is locked", nodeName)
 	}
 	newNode := node.DeepCopy()
-	newNode.ObjectMeta.Annotations[lockName] = time.Now().Format(time.RFC3339)
+	newNode.Annotations[lockName] = time.Now().Format(time.RFC3339)
 	_, err = client.GetClient().CoreV1().Nodes().Update(ctx, newNode, metav1.UpdateOptions{})
 	for i := 0; i < MaxLockRetry && err != nil; i++ {
 		klog.ErrorS(err, "Failed to update node", "node", nodeName, "retry", i)
@@ -53,7 +53,7 @@ func setNodeLock(nodeName string, lockName string) error {
 			continue
 		}
 		newNode := node.DeepCopy()
-		newNode.ObjectMeta.Annotations[lockName] = time.Now().Format(time.RFC3339)
+		newNode.Annotations[lockName] = time.Now().Format(time.RFC3339)
 		_, err = client.GetClient().CoreV1().Nodes().Update(ctx, newNode, metav1.UpdateOptions{})
 	}
 	if err != nil {
@@ -70,12 +70,12 @@ func ReleaseNodeLock(nodeName string, lockName string) error {
 	if err != nil {
 		return err
 	}
-	if _, ok := node.ObjectMeta.Annotations[lockName]; !ok {
+	if _, ok := node.Annotations[lockName]; !ok {
 		klog.V(3).InfoS("Node lock not set", "node", nodeName, "lock", lockName)
 		return nil
 	}
 	newNode := node.DeepCopy()
-	delete(newNode.ObjectMeta.Annotations, lockName)
+	delete(newNode.Annotations, lockName)
 	_, err = client.GetClient().CoreV1().Nodes().Update(ctx, newNode, metav1.UpdateOptions{})
 	for i := 0; i < MaxLockRetry && err != nil; i++ {
 		klog.ErrorS(err, "Failed to update node", "node", nodeName, "retry", i)
@@ -86,7 +86,7 @@ func ReleaseNodeLock(nodeName string, lockName string) error {
 			continue
 		}
 		newNode := node.DeepCopy()
-		delete(newNode.ObjectMeta.Annotations, lockName)
+		delete(newNode.Annotations, lockName)
 		_, err = client.GetClient().CoreV1().Nodes().Update(ctx, newNode, metav1.UpdateOptions{})
 	}
 	if err != nil {
@@ -103,10 +103,10 @@ func LockNode(nodeName string, lockName string) error {
 	if err != nil {
 		return err
 	}
-	if _, ok := node.ObjectMeta.Annotations[lockName]; !ok {
+	if _, ok := node.Annotations[lockName]; !ok {
 		return setNodeLock(nodeName, lockName)
 	}
-	lockTime, err := time.Parse(time.RFC3339, node.ObjectMeta.Annotations[lockName])
+	lockTime, err := time.Parse(time.RFC3339, node.Annotations[lockName])
 	if err != nil {
 		return err
 	}
