@@ -29,7 +29,7 @@ RUN go build -ldflags="-s -w" -o volcano-vgpu-device-plugin ./cmd/vgpu
 RUN go build -ldflags="-s -w" -o volcano-vgpu-monitor ./cmd/vgpu-monitor
 RUN go install github.com/NVIDIA/mig-parted/cmd/nvidia-mig-parted@latest
 
-FROM nvidia/cuda:12.9.1-cudnn-devel-ubuntu20.04 AS nvidia_builder
+FROM nvidia/cuda:12.9.2-cudnn-devel-ubuntu20.04 AS nvidia_builder
 ARG TARGETARCH
 RUN apt-get update
 RUN apt-get -y install wget openssl libssl-dev
