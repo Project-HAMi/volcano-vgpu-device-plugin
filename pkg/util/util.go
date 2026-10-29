@@ -152,8 +152,8 @@ func DecodeNodeDevices(str string) []*DeviceInfo {
 	for _, val := range tmp {
 		if strings.Contains(val, ",") {
 			items := strings.Split(val, ",")
-			count, _ := strconv.Atoi(items[1])
-			devmem, _ := strconv.Atoi(items[2])
+			count, _ := strconv.ParseInt(items[1], 10, 32)
+			devmem, _ := strconv.ParseInt(items[2], 10, 32)
 			health, _ := strconv.ParseBool(items[4])
 			i := DeviceInfo{
 				Id:     items[0],
