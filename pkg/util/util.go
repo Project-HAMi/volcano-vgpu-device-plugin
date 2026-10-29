@@ -152,6 +152,9 @@ func DecodeNodeDevices(str string) []*DeviceInfo {
 	for _, val := range tmp {
 		if strings.Contains(val, ",") {
 			items := strings.Split(val, ",")
+			if len(items) < 5 {
+				continue
+			}
 			count, _ := strconv.ParseInt(items[1], 10, 32)
 			devmem, _ := strconv.ParseInt(items[2], 10, 32)
 			health, _ := strconv.ParseBool(items[4])
@@ -207,8 +210,11 @@ func DecodeContainerDevices(str string) (c ContainerDevices, count int) {
 	}
 	for _, val := range cd {
 		if strings.Contains(val, ",") {
-			deviceCount++
 			tmpstr := strings.Split(val, ",")
+			if len(tmpstr) < 4 {
+				continue
+			}
+			deviceCount++
 			tmpdev.UUID = tmpstr[0]
 			tmpdev.Type = tmpstr[1]
 			devmem, _ := strconv.ParseInt(tmpstr[2], 10, 32)
