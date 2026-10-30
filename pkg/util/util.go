@@ -64,7 +64,10 @@ func GetPendingPod(node string, gpuAmount int) (*v1.Pod, error) {
 		return nil, err
 	}
 
-	oldestPod := getOldestPod(podList.Items, node, gpuAmount)
+	oldestPod, err := getOldestPod(podList.Items, node, gpuAmount)
+	if err != nil {
+		return nil, err
+	}
 	if oldestPod == nil {
 		return nil, fmt.Errorf("cannot get valid pod")
 	}
@@ -80,55 +83,63 @@ func GetPendingPod(node string, gpuAmount int) (*v1.Pod, error) {
 //	}
 //}
 
-func getOldestPod(pods []v1.Pod, nodename string, gpuAmount int) *v1.Pod {
-	if len(pods) == 0 {
-		return nil
-	}
-	//printPodList(pods, gpuAmount)
-	var oldest v1.Pod
-	found := false
-	filteredPods := []v1.Pod{}
-	for _, pod := range pods {
+// getOldestPod picks the pod kubelet is allocating for. Kubelet does not send
+// pod identity, so pods that tie on every ordering key and ask for different
+// devices cannot be told apart; that is an error, not a guess.
+func getOldestPod(pods []v1.Pod, nodename string, gpuAmount int) (*v1.Pod, error) {
+	var oldest *v1.Pod
+	var ambiguous *v1.Pod
+	for i := range pods {
+		pod := &pods[i]
 		if pod.Status.Phase != v1.PodPending {
 			klog.V(3).Infof("GetOldestPod -- Skip non-pending pod: %s, phase: %s", pod.Name, pod.Status.Phase)
 			continue
 		}
-
-		if pod.Annotations[AssignedNodeAnnotations] == nodename {
-			// Need to ensure that the pod being handled has the same number of devices as the node requesting
-			pdevices, deviceCount := DecodePodDevices(pod.Annotations[AssignedIDsToAllocateAnnotations])
-			klog.V(3).Infof("GetOldestPod -- Pod name: %s, Kubelet request gpuAmount %d, "+
-				"pod request gpuAmount %d", pod.Name, gpuAmount, len(pdevices))
-			if deviceCount == gpuAmount {
-				found = true
-				filteredPods = append(filteredPods, pod)
-				oldest = pod
-			}
+		if pod.Annotations[AssignedNodeAnnotations] != nodename {
+			continue
+		}
+		if phase := pod.Annotations[DeviceBindPhase]; phase == DeviceBindSuccess || phase == DeviceBindFailed {
+			continue
+		}
+		// Need to ensure that the pod being handled has the same number of devices as the node requesting
+		_, deviceCount := DecodePodDevices(pod.Annotations[AssignedIDsToAllocateAnnotations])
+		klog.V(3).Infof("GetOldestPod -- Pod name: %s, Kubelet request gpuAmount %d, "+
+			"pod request gpuAmount %d", pod.Name, gpuAmount, deviceCount)
+		if deviceCount != gpuAmount {
+			continue
+		}
+		switch {
+		case oldest == nil, podOrderLess(pod, oldest):
+			oldest, ambiguous = pod, nil
+		case !podOrderLess(oldest, pod) &&
+			pod.Annotations[AssignedIDsToAllocateAnnotations] != oldest.Annotations[AssignedIDsToAllocateAnnotations]:
+			ambiguous = pod
 		}
 	}
-
-	//klog.V(4).Infof("filteredPods %v", filteredPods)
-
-	for _, pod := range filteredPods {
-		//klog.V(4).Infof("pod %s, predicate time: %s", pod.Name, pod.Annotations[AssignedTimeAnnotations])
-		if getPredicateTimeFromPodAnnotation(&oldest) > getPredicateTimeFromPodAnnotation(&pod) {
-			oldest = pod
-		}
+	if oldest == nil {
+		return nil, nil
 	}
-
-	if found {
-		klog.Infof("GetOldestPod -- oldest pod %#v, predicate time: %#v", oldest.Name,
-			oldest.Annotations[AssignedTimeAnnotations])
-		return &oldest
+	if ambiguous != nil {
+		return nil, fmt.Errorf("ambiguous pending pods %s/%s and %s/%s on node %s: same allocation time, different devices",
+			oldest.Namespace, oldest.Name, ambiguous.Namespace, ambiguous.Name, nodename)
 	}
-	return nil
-
+	klog.Infof("GetOldestPod -- oldest pod %#v, predicate time: %#v", oldest.Name,
+		oldest.Annotations[AssignedTimeAnnotations])
+	return oldest, nil
 }
 
-func getPredicateTimeFromPodAnnotation(pod *v1.Pod) uint64 {
-	assumeTimeStr, ok := pod.Annotations[AssignedTimeAnnotations]
+// podOrderLess orders by predicate time, then bind time, oldest first.
+func podOrderLess(a, b *v1.Pod) bool {
+	if ta, tb := getTimeFromPodAnnotation(a, AssignedTimeAnnotations), getTimeFromPodAnnotation(b, AssignedTimeAnnotations); ta != tb {
+		return ta < tb
+	}
+	return getTimeFromPodAnnotation(a, BindTimeAnnotations) < getTimeFromPodAnnotation(b, BindTimeAnnotations)
+}
+
+func getTimeFromPodAnnotation(pod *v1.Pod, key string) uint64 {
+	assumeTimeStr, ok := pod.Annotations[key]
 	if !ok {
-		klog.Warningf("volcano not write timestamp, pod Name: %s", pod.Name)
+		klog.Warningf("volcano not write %s, pod Name: %s", key, pod.Name)
 		return math.MaxUint64
 	}
 	if len(assumeTimeStr) > PodAnnotationMaxLength {
@@ -310,7 +321,6 @@ func PodAllocationTrySuccess(nodeName string, pod *v1.Pod) {
 func PodAllocationSuccess(nodeName string, pod *v1.Pod) {
 	newannos := make(map[string]string)
 	newannos[DeviceBindPhase] = DeviceBindSuccess
-	newannos[AssignedTimeAnnotations] = strconv.FormatUint(math.MaxUint64, 10)
 	err := PatchPodAnnotations(pod, newannos)
 	if err != nil {
 		klog.Errorf("patchPodAnnotations failed:%v", err.Error())
@@ -324,7 +334,6 @@ func PodAllocationSuccess(nodeName string, pod *v1.Pod) {
 func PodAllocationFailed(nodeName string, pod *v1.Pod) {
 	newannos := make(map[string]string)
 	newannos[DeviceBindPhase] = DeviceBindFailed
-	newannos[AssignedTimeAnnotations] = strconv.FormatUint(math.MaxUint64, 10)
 	err := PatchPodAnnotations(pod, newannos)
 	if err != nil {
 		klog.Errorf("patchPodAnnotations failed:%v", err.Error())
