@@ -180,7 +180,9 @@ func (l *ContainerLister) Update() error {
 			}
 			klog.Infof("Removing dirname %s in monitorpath", dirName)
 			if c, ok := l.containers[entry.Name()]; ok {
-				syscall.Munmap(c.data)
+				if err := syscall.Munmap(c.data); err != nil {
+					klog.Errorf("munmap %s failed: %v", entry.Name(), err)
+				}
 				delete(l.containers, entry.Name())
 			}
 			_ = os.RemoveAll(dirName)

@@ -133,7 +133,7 @@ func (d *Daemon) Start() error {
 	if err != nil {
 		return err
 	}
-	defer statusFile.Close()
+	defer func() { _ = statusFile.Close() }()
 
 	d.logTailer = newTailer(filepath.Join(logDir, "control.log"))
 	klog.InfoS("Starting log tailer", "resource", d.rm.Resource())
@@ -210,8 +210,8 @@ func (d *Daemon) AssertHealthy() error {
 func (d *Daemon) EchoPipeToControl(command string) (string, error) {
 	var out bytes.Buffer
 	reader, writer := io.Pipe()
-	defer writer.Close()
-	defer reader.Close()
+	defer func() { _ = writer.Close() }()
+	defer func() { _ = reader.Close() }()
 
 	mpsDaemon := exec.Command(mpsControlBin)
 	mpsDaemon.Env = append(mpsDaemon.Env, d.EnvVars().toSlice()...)
