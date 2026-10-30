@@ -210,11 +210,12 @@ func DecodeContainerDevices(str string) (c ContainerDevices, count int) {
 	}
 	for _, val := range cd {
 		if strings.Contains(val, ",") {
+			// a truncated entry still counts, so the pod cannot match a smaller request
+			deviceCount++
 			tmpstr := strings.Split(val, ",")
 			if len(tmpstr) < 4 {
 				continue
 			}
-			deviceCount++
 			tmpdev.UUID = tmpstr[0]
 			tmpdev.Type = tmpstr[1]
 			devmem, _ := strconv.ParseInt(tmpstr[2], 10, 32)

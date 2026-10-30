@@ -201,3 +201,13 @@ func FuzzDecodePodDevices(f *testing.F) {
 		DecodePodDevices(s)
 	})
 }
+
+func TestDecodePodDevicesCountsMalformedEntries(t *testing.T) {
+	pd, count := DecodePodDevices("GPU-a,NVIDIA,683,30:GPU-b,NVIDIA:")
+	if count != 2 {
+		t.Fatalf("count = %d, want 2 so a truncated entry cannot match a one-device request", count)
+	}
+	if len(pd) != 1 || len(pd[0]) != 1 {
+		t.Fatalf("expected only the valid entry to be decoded, got %v", pd)
+	}
+}
