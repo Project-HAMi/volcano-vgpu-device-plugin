@@ -1,7 +1,7 @@
 header:
   schema-version: 2.1.0
-  last-updated: '2026-09-22'
-  last-reviewed: '2026-09-22'
+  last-updated: '2026-10-29'
+  last-reviewed: '2026-10-29'
   url: https://github.com/Project-HAMi/volcano-vgpu-device-plugin/blob/main/SECURITY-INSIGHTS.yml
   comment: |
     Security metadata for volcano-vgpu-device-plugin, following the OpenSSF
@@ -35,6 +35,9 @@ project:
   vulnerability-reporting:
     reports-accepted: true
     bug-bounty-available: false
+    contact:
+      name: volcano-vgpu-device-plugin maintainers
+      primary: true
     security-policy: https://github.com/Project-HAMi/volcano-vgpu-device-plugin/blob/main/SECURITY.md
     comment: |
       Report vulnerabilities privately via GitHub Security Advisories:
@@ -108,7 +111,7 @@ repository:
           Static analysis of Go code and GitHub Actions workflows on every pull
           request, on pushes to main and weekly.
       - name: GitHub secret scanning
-        type: secret
+        type: secret-scanning
         version: latest
         rulesets:
           - built-in
