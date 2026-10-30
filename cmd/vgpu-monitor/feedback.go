@@ -120,7 +120,7 @@ func Observe(lister *nvidia.ContainerLister) {
 }
 
 func watchAndFeedback(lister *nvidia.ContainerLister) {
-	config.Nvml().Init()
+	_ = config.Nvml().Init()
 	for {
 		time.Sleep(time.Second * 5)
 		err := lister.Update()

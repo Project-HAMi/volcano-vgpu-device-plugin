@@ -32,7 +32,7 @@ func Files(files ...string) (*fsnotify.Watcher, error) {
 	for _, f := range files {
 		err = watcher.Add(f)
 		if err != nil {
-			watcher.Close()
+			_ = watcher.Close()
 			return nil, err
 		}
 	}

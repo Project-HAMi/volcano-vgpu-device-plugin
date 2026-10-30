@@ -12,12 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM ubuntu:25.10 AS builder
+FROM ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c AS builder
 ARG TARGETARCH
-ARG GO_VERSION=1.26.9
+ARG GO_VERSION=1.26.10
+ARG GO_SHA256_AMD64=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5
+ARG GO_SHA256_ARM64=3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797
 RUN apt-get update
 RUN apt-get -y install ca-certificates g++ wget
-RUN wget -qO- "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /usr/local -zx
+RUN case "${TARGETARCH}" in \
+        "amd64") GO_SHA256="${GO_SHA256_AMD64}" ;; \
+        "arm64") GO_SHA256="${GO_SHA256_ARM64}" ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
+    esac && \
+    wget -qO go.tar.gz "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" && \
+    echo "${GO_SHA256}  go.tar.gz" | sha256sum -c - && \
+    tar -C /usr/local -xzf go.tar.gz && \
+    rm go.tar.gz
 ENV GOPATH=/go
 ENV PATH=$GOPATH/bin:/usr/local/go/bin:$PATH
 WORKDIR /go/src/volcano.sh/devices
@@ -27,9 +37,9 @@ RUN go env -w GOARCH=${TARGETARCH}
 RUN go env -w CGO_LDFLAGS_ALLOW='-Wl,--unresolved-symbols=ignore-in-object-files'
 RUN go build -ldflags="-s -w" -o volcano-vgpu-device-plugin ./cmd/vgpu
 RUN go build -ldflags="-s -w" -o volcano-vgpu-monitor ./cmd/vgpu-monitor
-RUN go install github.com/NVIDIA/mig-parted/cmd/nvidia-mig-parted@latest
+RUN go install github.com/NVIDIA/mig-parted/cmd/nvidia-mig-parted@v0.15.1
 
-FROM nvidia/cuda:12.9.2-cudnn-devel-ubuntu20.04 AS nvidia_builder
+FROM nvidia/cuda:12.9.2-cudnn-devel-ubuntu20.04@sha256:b0f6d8a03bcddac00f7cb42e16d2d0d8c4eb211ae5305efe991e5f1b81164fdc AS nvidia_builder
 ARG TARGETARCH
 RUN apt-get update
 RUN apt-get -y install wget openssl libssl-dev
@@ -46,7 +56,7 @@ WORKDIR /libvgpu
 RUN rm -rf /libvgpu/build
 RUN bash ./build.sh
 
-FROM ubuntu:25.10
+FROM ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c
 
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=utility

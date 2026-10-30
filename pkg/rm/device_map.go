@@ -136,7 +136,9 @@ func (b *deviceMapBuilder) buildGPUDeviceMap() (DeviceMap, error) {
 		for _, resource := range b.resources.GPUs {
 			if resource.Pattern.Matches(name) {
 				index, info := b.newGPUDevice(i, gpu)
-				devices.setEntry(resource.Name, index, info)
+				if err := devices.setEntry(resource.Name, index, info); err != nil {
+					klog.Errorf("set device entry %s failed: %v", index, err)
+				}
 			} else {
 				match = false
 			}
