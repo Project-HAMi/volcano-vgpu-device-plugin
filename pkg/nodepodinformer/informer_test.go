@@ -33,14 +33,14 @@ import (
 )
 
 func TestInformerListFailsClosedUntilSynced(t *testing.T) {
-	informer, err := New(fake.NewSimpleClientset(), "node-a")
+	informer, err := New(fake.NewClientset(), "node-a")
 	require.NoError(t, err)
 	_, err = informer.List()
 	require.ErrorIs(t, err, ErrNotSynced)
 }
 
 func TestInformerStartsOnceAndUsesNodeFieldSelector(t *testing.T) {
-	client := fake.NewSimpleClientset(&corev1.Pod{
+	client := fake.NewClientset(&corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "pod-a", Namespace: "default"},
 		Spec:       corev1.PodSpec{NodeName: "node-a"},
 	})
@@ -66,12 +66,12 @@ func TestInformerStartsOnceAndUsesNodeFieldSelector(t *testing.T) {
 func TestNewValidatesInputs(t *testing.T) {
 	_, err := New(nil, "node-a")
 	require.Error(t, err)
-	_, err = New(fake.NewSimpleClientset(), "")
+	_, err = New(fake.NewClientset(), "")
 	require.Error(t, err)
 }
 
 func TestWaitForSyncWaitsForInitialList(t *testing.T) {
-	client := fake.NewSimpleClientset(&corev1.Pod{
+	client := fake.NewClientset(&corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "existing-pod", Namespace: "default"},
 		Spec:       corev1.PodSpec{NodeName: "node-a"},
 	})
@@ -123,7 +123,7 @@ func TestWaitForSyncStopsWhenContextEnds(t *testing.T) {
 			name = "deadline"
 		}
 		t.Run(name, func(t *testing.T) {
-			client := fake.NewSimpleClientset()
+			client := fake.NewClientset()
 			client.PrependReactor("list", "pods", func(ktesting.Action) (bool, runtime.Object, error) {
 				return true, nil, errors.New("API unavailable")
 			})
