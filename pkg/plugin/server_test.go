@@ -17,6 +17,7 @@
 package plugin
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -24,9 +25,78 @@ import (
 
 	v1 "volcano.sh/k8s-device-plugin/api/config/v1"
 	"volcano.sh/k8s-device-plugin/pkg/cdi"
+	"volcano.sh/k8s-device-plugin/pkg/config"
 	"volcano.sh/k8s-device-plugin/pkg/imex"
 	"volcano.sh/k8s-device-plugin/pkg/rm"
 )
+
+type listAndWatchServerMock struct {
+	pluginapi.DevicePlugin_ListAndWatchServer
+	sendFunc func(*pluginapi.ListAndWatchResponse) error
+}
+
+func (s *listAndWatchServerMock) Send(response *pluginapi.ListAndWatchResponse) error {
+	return s.sendFunc(response)
+}
+
+func TestListAndWatch(t *testing.T) {
+	splitCount := config.DeviceSplitCount
+	config.DeviceSplitCount = 1
+	t.Cleanup(func() { config.DeviceSplitCount = splitCount })
+
+	sendErr := errors.New("stream send failed")
+	for _, tc := range []struct {
+		name         string
+		healthUpdate bool
+		failOnSend   int
+		wantSends    int
+	}{
+		{name: "initial send failure", failOnSend: 1, wantSends: 1},
+		{name: "health update send failure", healthUpdate: true, failOnSend: 2, wantSends: 2},
+		{name: "normal shutdown", wantSends: 1},
+		{name: "health update then shutdown", healthUpdate: true, wantSends: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			device := &rm.Device{Device: pluginapi.Device{ID: "gpu0", Health: pluginapi.Healthy}}
+			plugin := nvidiaDevicePlugin{
+				rm: &rm.ResourceManagerMock{
+					DevicesFunc:  func() rm.Devices { return rm.Devices{device.ID: device} },
+					ResourceFunc: func() v1.ResourceName { return "volcano.sh/vgpu-number" },
+				},
+				health: make(chan *rm.Device, 1),
+				stop:   make(chan interface{}),
+			}
+			if tc.healthUpdate {
+				plugin.health <- device
+			}
+
+			sends := 0
+			stream := &listAndWatchServerMock{sendFunc: func(response *pluginapi.ListAndWatchResponse) error {
+				sends++
+				health := pluginapi.Healthy
+				if sends > 1 {
+					health = pluginapi.Unhealthy
+				}
+				require.Equal(t, []*pluginapi.Device{{ID: "gpu0-0", Health: health}}, response.Devices)
+				if sends == tc.failOnSend {
+					return sendErr
+				}
+				if sends == tc.wantSends {
+					close(plugin.stop)
+				}
+				return nil
+			}}
+
+			err := plugin.ListAndWatch(&pluginapi.Empty{}, stream)
+			if tc.failOnSend > 0 {
+				require.ErrorIs(t, err, sendErr)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tc.wantSends, sends)
+		})
+	}
+}
 
 func TestAllocate(t *testing.T) {
 	testCases := []struct {
