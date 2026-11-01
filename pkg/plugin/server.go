@@ -27,6 +27,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	cdiapi "tags.cncf.io/container-device-interface/pkg/cdi"
@@ -91,16 +92,19 @@ type nvidiaDevicePlugin struct {
 	health chan *rm.Device
 	stop   chan interface{}
 
+	healthMu      sync.Mutex
+	healthChanged chan struct{}
+	healthDone    chan struct{}
+
 	imexChannels imex.Channels
 
 	mps mpsOptions
 
 	migCurrent config.MigPartedSpec
 
-	// entryLimitWarned keeps the device count warning to one line per plugin,
-	// since apiDevices runs again on every health event. Only ListAndWatch
-	// reaches it, so no synchronisation is needed.
-	entryLimitWarned bool
+	// entryLimitWarning keeps the device count warning to one line per plugin,
+	// including when ListAndWatch streams overlap during reconnection.
+	entryLimitWarning sync.Once
 }
 
 // devicePluginForResource creates a device plugin for the specified resource.
@@ -141,13 +145,21 @@ func getPluginSocketPath(resource spec.ResourceName) string {
 }
 
 func (plugin *nvidiaDevicePlugin) initialize() {
+	plugin.healthMu.Lock()
 	plugin.server = grpc.NewServer([]grpc.ServerOption{}...)
 	plugin.health = make(chan *rm.Device)
 	plugin.stop = make(chan interface{})
+	plugin.healthChanged = make(chan struct{})
+	plugin.healthDone = make(chan struct{})
+	plugin.healthMu.Unlock()
+	go plugin.watchHealth(plugin.stop, plugin.health, plugin.healthDone)
 }
 
 func (plugin *nvidiaDevicePlugin) cleanup() {
 	close(plugin.stop)
+	<-plugin.healthDone
+	plugin.healthMu.Lock()
+	defer plugin.healthMu.Unlock()
 	plugin.server = nil
 	plugin.health = nil
 	plugin.stop = nil
@@ -165,10 +177,12 @@ func (plugin *nvidiaDevicePlugin) Start(kubeletSocket string) error {
 
 	deviceNumbers, err := util.GetDeviceNums()
 	if err != nil {
+		plugin.cleanup()
 		return err
 	}
 
 	if err := plugin.mps.waitForDaemon(); err != nil {
+		plugin.cleanup()
 		return fmt.Errorf("error waiting for MPS daemon: %w", err)
 	}
 
@@ -329,19 +343,24 @@ func (plugin *nvidiaDevicePlugin) GetDevicePluginOptions(context.Context, *plugi
 
 // ListAndWatch lists devices and update that list according to the health status
 func (plugin *nvidiaDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.DevicePlugin_ListAndWatchServer) error {
-	if err := s.Send(&pluginapi.ListAndWatchResponse{Devices: plugin.apiDevices()}); err != nil {
+	plugin.healthMu.Lock()
+	stop := plugin.stop
+	plugin.healthMu.Unlock()
+	devices, changed := plugin.deviceSnapshot()
+	if err := s.Send(&pluginapi.ListAndWatchResponse{Devices: plugin.apiDevices(devices)}); err != nil {
 		return err
 	}
 	for {
 		select {
-		case <-plugin.stop:
+		case <-stop:
 			return nil
-		case d := <-plugin.health:
-			// FIXME: there is no way to recover from the Unhealthy state.
-			d.Health = pluginapi.Unhealthy
-			klog.Infof("'%s' device marked unhealthy: %s", plugin.rm.Resource(), d.ID)
-			if err := s.Send(&pluginapi.ListAndWatchResponse{Devices: plugin.apiDevices()}); err != nil {
-				return nil
+		case <-s.Context().Done():
+			return s.Context().Err()
+		case <-changed:
+			devices, changed = plugin.deviceSnapshot()
+			if err := s.Send(&pluginapi.ListAndWatchResponse{Devices: plugin.apiDevices(devices)}); err != nil {
+				klog.ErrorS(err, "Failed to send device health update", "resource", plugin.rm.Resource())
+				return err
 			}
 		}
 	}
@@ -561,7 +580,7 @@ func (plugin *nvidiaDevicePlugin) getAllocateResponse(requestIds []string) (*plu
 // updateResponseForMPS ensures that the ContainerAllocate response contains the information required to use MPS.
 // This includes per-resource pipe and log directories as well as a global daemon-specific shm
 // and assumes that an MPS control daemon has already been started.
-func (plugin nvidiaDevicePlugin) updateResponseForMPS(response *pluginapi.ContainerAllocateResponse) {
+func (plugin *nvidiaDevicePlugin) updateResponseForMPS(response *pluginapi.ContainerAllocateResponse) {
 	plugin.mps.updateReponse(response)
 }
 
@@ -673,8 +692,7 @@ func (plugin *nvidiaDevicePlugin) uniqueDeviceIDsFromAnnotatedDeviceIDs(ids []st
 	return uniqueIDs
 }
 
-func (plugin *nvidiaDevicePlugin) apiDevices() []*pluginapi.Device {
-	devs := plugin.rm.Devices().GetPluginDevices()
+func (plugin *nvidiaDevicePlugin) apiDevices(devs []*pluginapi.Device) []*pluginapi.Device {
 	/*if strings.Compare(plugin.migStrategy, "mixed") == 0 {
 		return devs
 	}*/
@@ -706,12 +724,11 @@ func (plugin *nvidiaDevicePlugin) apiDevices() []*pluginapi.Device {
 			}
 		}
 		klog.Infoln("res length=", len(res))
-		if !plugin.entryLimitWarned {
-			plugin.entryLimitWarned = true
+		plugin.entryLimitWarning.Do(func() {
 			if err := checkDeviceEntries(len(res), config.GPUMemoryFactor); err != nil {
 				klog.Warning(err)
 			}
-		}
+		})
 		return res
 	} else if plugin.rm.Resource() == spec.ResourceName(util.ResourceCores) {
 		for _, dev := range devs {
@@ -829,7 +846,8 @@ func (plugin *nvidiaDevicePlugin) WatchAndRegister() {
 			time.Sleep(time.Second * 2)
 			continue
 		}
-		err := RegisterInAnnotation(plugin.rm.Devices().GetPluginDevices())
+		devices, _ := plugin.deviceSnapshot()
+		err := RegisterInAnnotation(devices)
 		if err != nil {
 			klog.Errorf("register error, %v", err)
 			time.Sleep(time.Second * 5)
