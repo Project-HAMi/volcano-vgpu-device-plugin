@@ -231,6 +231,85 @@ func TestHealthDuringSlowSend(t *testing.T) {
 	}
 }
 
+// TestHealthDuplicateEvent checks that a responsive stream gets no new snapshot
+// or wake-up for an unchanged device, even if stream scheduling coalesces updates.
+func TestHealthDuplicateEvent(t *testing.T) {
+	plugin, events, devices := healthTestPlugin(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	responses := make(chan *pluginapi.ListAndWatchResponse, 4)
+	done := make(chan error, 1)
+	exited := make(chan struct{})
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-exited:
+		case <-time.After(5 * time.Second):
+			t.Error("stream goroutine did not exit during cleanup")
+		}
+	})
+	go func() {
+		defer close(exited)
+		done <- plugin.ListAndWatch(&pluginapi.Empty{}, &healthTestStream{ctx: ctx, send: func(response *pluginapi.ListAndWatchResponse) error {
+			select {
+			case responses <- response:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}})
+	}()
+	for _, want := range []string{pluginapi.Healthy, pluginapi.Unhealthy} {
+		if want == pluginapi.Unhealthy {
+			notifyHealth(t, events, devices[0])
+		}
+		select {
+		case response := <-responses:
+			require.Len(t, response.Devices, 2)
+			for _, d := range response.Devices {
+				switch d.ID {
+				case "gpu0-0":
+					require.Equal(t, want, d.Health)
+				case "gpu1-0":
+					require.Equal(t, pluginapi.Healthy, d.Health)
+				default:
+					t.Fatalf("unexpected device %q", d.ID)
+				}
+			}
+		case <-ctx.Done():
+			t.Fatal("stream did not send the expected health snapshot")
+		}
+	}
+	_, changed := plugin.deviceSnapshot()
+	notifyHealth(t, events, devices[0])
+	// Receiving a second unbuffered notification proves the consumer finished
+	// the first duplicate. Check its wake-up before a gpu1 change can hide it.
+	notifyHealth(t, events, devices[0])
+	select {
+	case <-changed:
+		t.Fatal("duplicate unhealthy event woke snapshot subscribers")
+	default:
+	}
+	notifyHealth(t, events, devices[1])
+	select {
+	case response := <-responses:
+		require.Len(t, response.Devices, 2)
+		for _, d := range response.Devices {
+			require.Equal(t, pluginapi.Unhealthy, d.Health)
+		}
+	case <-ctx.Done():
+		t.Fatal("stream did not send the gpu1 health change")
+	}
+	require.NoError(t, plugin.Stop())
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-ctx.Done():
+		t.Fatal("responsive stream did not stop")
+	}
+	require.Empty(t, responses, "duplicate unhealthy event sent another snapshot")
+}
+
 // TestHealthStreamReconnect uses real Unix-socket gRPC to cover client
 // cancellation, healthy updates, reconnect snapshots, and clean server shutdown.
 func TestHealthStreamReconnect(t *testing.T) {
@@ -300,12 +379,16 @@ func TestHealthStreamReconnect(t *testing.T) {
 		require.Equal(t, pluginapi.Unhealthy, d.Health)
 	}
 	require.NoError(t, plugin.Stop())
-	select {
-	case err = <-results:
-		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("stream did not stop")
+	for range 2 {
+		select {
+		case err = <-results:
+			require.NoError(t, err)
+		case <-ctx.Done():
+			t.Fatal("active stream did not stop")
+		}
 	}
 	_, err = stream.Recv()
+	require.ErrorIs(t, err, io.EOF)
+	_, err = second.Recv()
 	require.ErrorIs(t, err, io.EOF)
 }
