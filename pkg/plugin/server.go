@@ -341,6 +341,7 @@ func (plugin *nvidiaDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.D
 			d.Health = pluginapi.Unhealthy
 			klog.Infof("'%s' device marked unhealthy: %s", plugin.rm.Resource(), d.ID)
 			if err := s.Send(&pluginapi.ListAndWatchResponse{Devices: plugin.apiDevices()}); err != nil {
+				klog.ErrorS(err, "Failed to send device health update", "resource", plugin.rm.Resource(), "deviceID", d.ID)
 				return err
 			}
 		}
