@@ -19,10 +19,139 @@ package rm
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	nvmlmock "github.com/NVIDIA/go-nvml/pkg/nvml/mock"
 	"github.com/stretchr/testify/require"
+	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
+
+// TestCheckHealthNotifications covers cancellation at every notification site,
+// delivery to an active reader, and release of the NVML resources on exit.
+func TestCheckHealthNotifications(t *testing.T) {
+	t.Setenv(envDisableHealthChecks, "")
+	t.Setenv(envEnableHealthChecks, "")
+	for _, stage := range []string{"placement", "handle", "supported events", "registration", "event wait", "event UUID", "XID", "healthy"} {
+		modes := []string{"stop", "deliver"}
+		if stage == "healthy" {
+			modes = modes[:1]
+		}
+		for _, mode := range modes {
+			t.Run(stage+"/"+mode, func(t *testing.T) {
+				stop := make(chan interface{})
+				var stopOnce sync.Once
+				shutdown := func() { stopOnce.Do(func() { close(stop) }) }
+				t.Cleanup(shutdown)
+				unhealthy := make(chan *Device)
+				reached := make(chan struct{})
+				device := &Device{Device: pluginapi.Device{ID: "GPU-test", Health: pluginapi.Healthy}}
+				if stage == "placement" {
+					device.Index = "0:0"
+					device.ID = "MIG-invalid"
+				}
+				gpu := &nvmlmock.Device{
+					GetSupportedEventTypesFunc: func() (uint64, nvml.Return) {
+						if stage == "supported events" {
+							close(reached)
+							return 0, nvml.ERROR_UNKNOWN
+						}
+						return uint64(nvml.EventTypeXidCriticalError), nvml.SUCCESS
+					},
+					RegisterEventsFunc: func(uint64, nvml.EventSet) nvml.Return {
+						if stage == "registration" {
+							close(reached)
+							return nvml.ERROR_UNKNOWN
+						}
+						return nvml.SUCCESS
+					},
+					GetUUIDFunc: func() (string, nvml.Return) {
+						close(reached)
+						if stage == "event UUID" {
+							return "", nvml.ERROR_UNKNOWN
+						}
+						return device.ID, nvml.SUCCESS
+					},
+				}
+				firstWait := true
+				events := &nvmlmock.EventSet{
+					FreeFunc: func() nvml.Return { return nvml.SUCCESS },
+					WaitFunc: func(uint32) (nvml.EventData, nvml.Return) {
+						if firstWait {
+							firstWait = false
+							switch stage {
+							case "event wait":
+								close(reached)
+								return nvml.EventData{}, nvml.ERROR_UNKNOWN
+							case "event UUID", "XID":
+								return nvml.EventData{Device: gpu, EventType: nvml.EventTypeXidCriticalError, EventData: 999}, nvml.SUCCESS
+							case "healthy":
+								close(reached)
+							}
+						}
+						<-stop
+						return nvml.EventData{}, nvml.ERROR_TIMEOUT
+					},
+				}
+				lib := &nvmlmock.Interface{
+					InitFunc:           func() nvml.Return { return nvml.SUCCESS },
+					ShutdownFunc:       func() nvml.Return { return nvml.SUCCESS },
+					EventSetCreateFunc: func() (nvml.EventSet, nvml.Return) { return events, nvml.SUCCESS },
+					DeviceGetHandleByUUIDFunc: func(string) (nvml.Device, nvml.Return) {
+						if stage == "placement" || stage == "handle" {
+							close(reached)
+							return nil, nvml.ERROR_UNKNOWN
+						}
+						return gpu, nvml.SUCCESS
+					},
+				}
+				manager := &nvmlResourceManager{
+					resourceManager: resourceManager{devices: Devices{device.ID: device}},
+					nvml:            lib,
+				}
+				done := make(chan error, 1)
+				go func() { done <- manager.CheckHealth(stop, unhealthy) }()
+				select {
+				case <-reached:
+				case <-time.After(5 * time.Second):
+					t.Fatal("health check did not reach the expected NVML path")
+				}
+				if mode == "deliver" {
+					select {
+					case got := <-unhealthy:
+						require.Same(t, device, got)
+					case <-time.After(5 * time.Second):
+						t.Fatal("health notification was not delivered")
+					}
+				}
+				shutdown()
+				select {
+				case err := <-done:
+					require.NoError(t, err)
+				case <-time.After(5 * time.Second):
+					// Drain the old implementation's blocked send so the failing
+					// regression also releases its goroutine and NVML resources.
+					t.Error("health notification did not unblock on stop")
+					select {
+					case <-unhealthy:
+					case <-time.After(5 * time.Second):
+						t.Fatal("could not release the blocked notification")
+					}
+					select {
+					case err := <-done:
+						require.NoError(t, err)
+					case <-time.After(5 * time.Second):
+						t.Fatal("health check did not exit after releasing its notification")
+					}
+				}
+				require.Len(t, events.FreeCalls(), 1)
+				require.Len(t, lib.ShutdownCalls(), 1)
+			})
+		}
+	}
+}
 
 func TestNewHealthCheckXIDs(t *testing.T) {
 	testCases := []struct {
