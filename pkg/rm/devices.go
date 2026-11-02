@@ -175,16 +175,6 @@ func (ds Devices) GetUUIDs() []string {
 	return res
 }
 
-// GetPluginDevices returns the plugin Devices from all devices in the Devices
-func (ds Devices) GetPluginDevices() []*pluginapi.Device {
-	var res []*pluginapi.Device
-	for _, device := range ds {
-		d := device
-		res = append(res, &d.Device)
-	}
-	return res
-}
-
 // GetIndices returns the Indices from all devices in the Devices
 func (ds Devices) GetIndices() []string {
 	var res []string

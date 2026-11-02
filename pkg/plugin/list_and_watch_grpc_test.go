@@ -21,7 +21,6 @@ import (
 	"io"
 	"net"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -55,9 +54,8 @@ func TestListAndWatchGRPC(t *testing.T) {
 					DevicesFunc:  func() rm.Devices { return rm.Devices{device.ID: device} },
 					ResourceFunc: func() v1.ResourceName { return "volcano.sh/vgpu-number" },
 				},
-				health: make(chan *rm.Device, 1),
-				stop:   make(chan interface{}),
 			}
+			plugin.initialize()
 			serverContexts := make(chan context.Context, 1)
 			results := make(chan error, 1)
 			server := grpc.NewServer(grpc.StreamInterceptor(func(srv interface{}, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
@@ -66,9 +64,8 @@ func TestListAndWatchGRPC(t *testing.T) {
 				results <- err
 				return err
 			}))
-			var stop sync.Once
 			t.Cleanup(func() {
-				stop.Do(func() { close(plugin.stop) })
+				require.NoError(t, plugin.Stop())
 				server.Stop()
 			})
 			socketName := "stop.sock"
@@ -108,7 +105,7 @@ func TestListAndWatchGRPC(t *testing.T) {
 				response, err = stream.Recv()
 				require.NoError(t, err)
 				require.Equal(t, []*pluginapi.Device{{ID: "gpu0-0", Health: pluginapi.Unhealthy}}, response.Devices)
-				stop.Do(func() { close(plugin.stop) })
+				require.NoError(t, plugin.Stop())
 			}
 			select {
 			case err = <-results:

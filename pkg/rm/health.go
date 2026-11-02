@@ -80,7 +80,9 @@ func (r *nvmlResourceManager) checkHealth(stop <-chan interface{}, devices Devic
 		uuid, gi, ci, err := r.getDevicePlacement(d)
 		if err != nil {
 			klog.Warningf("Could not determine device placement for %v: %v; Marking it unhealthy.", d.ID, err)
-			unhealthy <- d
+			if !reportUnhealthy(stop, unhealthy, d) {
+				return nil
+			}
 			continue
 		}
 		deviceIDToGiMap[d.ID] = gi
@@ -90,14 +92,18 @@ func (r *nvmlResourceManager) checkHealth(stop <-chan interface{}, devices Devic
 		gpu, ret := r.nvml.DeviceGetHandleByUUID(uuid)
 		if ret != nvml.SUCCESS {
 			klog.Infof("unable to get device handle from UUID: %v; marking it as unhealthy", ret)
-			unhealthy <- d
+			if !reportUnhealthy(stop, unhealthy, d) {
+				return nil
+			}
 			continue
 		}
 
 		supportedEvents, ret := gpu.GetSupportedEventTypes()
 		if ret != nvml.SUCCESS {
 			klog.Infof("unable to determine the supported events for %v: %v; marking it as unhealthy", d.ID, ret)
-			unhealthy <- d
+			if !reportUnhealthy(stop, unhealthy, d) {
+				return nil
+			}
 			continue
 		}
 
@@ -107,7 +113,9 @@ func (r *nvmlResourceManager) checkHealth(stop <-chan interface{}, devices Devic
 			klog.Warningf("Device %v is too old to support healthchecking.", d.ID)
 		case ret != nvml.SUCCESS:
 			klog.Infof("Marking device %v as unhealthy: %v", d.ID, ret)
-			unhealthy <- d
+			if !reportUnhealthy(stop, unhealthy, d) {
+				return nil
+			}
 		}
 	}
 
@@ -125,7 +133,9 @@ func (r *nvmlResourceManager) checkHealth(stop <-chan interface{}, devices Devic
 		if ret != nvml.SUCCESS {
 			klog.Infof("Error waiting for event: %v; Marking all devices as unhealthy", ret)
 			for _, d := range devices {
-				unhealthy <- d
+				if !reportUnhealthy(stop, unhealthy, d) {
+					return nil
+				}
 			}
 			continue
 		}
@@ -146,7 +156,9 @@ func (r *nvmlResourceManager) checkHealth(stop <-chan interface{}, devices Devic
 			// If we cannot reliably determine the device UUID, we mark all devices as unhealthy.
 			klog.Infof("Failed to determine uuid for event %v: %v; Marking all devices as unhealthy.", e, ret)
 			for _, d := range devices {
-				unhealthy <- d
+				if !reportUnhealthy(stop, unhealthy, d) {
+					return nil
+				}
 			}
 			continue
 		}
@@ -167,7 +179,20 @@ func (r *nvmlResourceManager) checkHealth(stop <-chan interface{}, devices Devic
 		}
 
 		klog.Infof("XidCriticalError: Xid=%d on Device=%s; marking device as unhealthy.", e.EventData, d.ID)
-		unhealthy <- d
+		if !reportUnhealthy(stop, unhealthy, d) {
+			return nil
+		}
+	}
+}
+
+// reportUnhealthy waits for a reader or shutdown. A false result tells the
+// health check to exit so its deferred NVML cleanup can run.
+func reportUnhealthy(stop <-chan interface{}, unhealthy chan<- *Device, device *Device) bool {
+	select {
+	case <-stop:
+		return false
+	case unhealthy <- device:
+		return true
 	}
 }
 

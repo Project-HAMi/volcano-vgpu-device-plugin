@@ -17,6 +17,7 @@
 package plugin
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -33,7 +34,10 @@ import (
 type listAndWatchServerMock struct {
 	pluginapi.DevicePlugin_ListAndWatchServer
 	sendFunc func(*pluginapi.ListAndWatchResponse) error
+	ctx      context.Context
 }
+
+func (s *listAndWatchServerMock) Context() context.Context { return s.ctx }
 
 func (s *listAndWatchServerMock) Send(response *pluginapi.ListAndWatchResponse) error {
 	return s.sendFunc(response)
@@ -63,15 +67,12 @@ func TestListAndWatch(t *testing.T) {
 					DevicesFunc:  func() rm.Devices { return rm.Devices{device.ID: device} },
 					ResourceFunc: func() v1.ResourceName { return "volcano.sh/vgpu-number" },
 				},
-				health: make(chan *rm.Device, 1),
-				stop:   make(chan interface{}),
 			}
-			if tc.healthUpdate {
-				plugin.health <- device
-			}
+			plugin.initialize()
+			t.Cleanup(func() { require.NoError(t, plugin.Stop()) })
 
 			sends := 0
-			stream := &listAndWatchServerMock{sendFunc: func(response *pluginapi.ListAndWatchResponse) error {
+			stream := &listAndWatchServerMock{ctx: t.Context(), sendFunc: func(response *pluginapi.ListAndWatchResponse) error {
 				sends++
 				health := pluginapi.Healthy
 				if sends > 1 {
@@ -81,8 +82,16 @@ func TestListAndWatch(t *testing.T) {
 				if sends == tc.failOnSend {
 					return sendErr
 				}
+				if sends == 1 && tc.healthUpdate {
+					go func(stop <-chan interface{}, health chan<- *rm.Device) {
+						select {
+						case health <- device:
+						case <-stop:
+						}
+					}(plugin.stop, plugin.health)
+				}
 				if sends == tc.wantSends {
-					close(plugin.stop)
+					require.NoError(t, plugin.Stop())
 				}
 				return nil
 			}}
