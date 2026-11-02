@@ -19,6 +19,7 @@ package util
 import (
 	"context"
 	"errors"
+	"math"
 	"reflect"
 	"testing"
 
@@ -172,9 +173,27 @@ func TestLoadConfigFromCMStopsOnNonNotFoundError(t *testing.T) {
 }
 
 func TestDecodeNodeDevicesOutOfRange(t *testing.T) {
-	got := DecodeNodeDevices("GPU-a,4294967297,4294967298,NVIDIA,true:")
-	if len(got) != 0 {
-		t.Fatalf("out-of-range values must not advertise a device: %+v", got)
+	for _, tt := range []struct {
+		name                  string
+		count, memory         string
+		wantCount, wantMemory int32
+	}{
+		{name: "positive overflow", count: "4294967297", memory: "4294967298", wantCount: math.MaxInt32, wantMemory: math.MaxInt32},
+		{name: "negative overflow", count: "-4294967297", memory: "-4294967298", wantCount: math.MinInt32, wantMemory: math.MinInt32},
+		{name: "count overflow", count: "2147483648", memory: "4096", wantCount: math.MaxInt32, wantMemory: 4096},
+		{name: "memory overflow", count: "10", memory: "2147483648", wantCount: 10, wantMemory: math.MaxInt32},
+		{name: "beyond int64", count: "9223372036854775808", memory: "-9223372036854775809", wantCount: math.MaxInt32, wantMemory: math.MinInt32},
+		{name: "int32 limits", count: "2147483647", memory: "-2147483648", wantCount: math.MaxInt32, wantMemory: math.MinInt32},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DecodeNodeDevices("GPU-a," + tt.count + "," + tt.memory + ",NVIDIA,true:")
+			if len(got) != 1 {
+				t.Fatalf("got %d devices, want 1 with clamped values", len(got))
+			}
+			if got[0].Count != tt.wantCount || got[0].Devmem != tt.wantMemory {
+				t.Fatalf("count=%d devmem=%d; want count=%d devmem=%d", got[0].Count, got[0].Devmem, tt.wantCount, tt.wantMemory)
+			}
+		})
 	}
 }
 

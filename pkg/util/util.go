@@ -38,7 +38,6 @@ import (
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
-	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 	"tags.cncf.io/container-device-interface/specs-go"
 	"volcano.sh/k8s-device-plugin/pkg/config"
 	"volcano.sh/k8s-device-plugin/pkg/util/client"
@@ -153,7 +152,7 @@ func getTimeFromPodAnnotation(pod *v1.Pod, key string) uint64 {
 	return predicateTime
 }
 
-// DecodeNodeDevices skips entries with malformed fields or values outside int32 range.
+// DecodeNodeDevices skips malformed entries and clamps numeric overflow to int32 bounds.
 func DecodeNodeDevices(str string) []*DeviceInfo {
 	if !strings.Contains(str, ":") {
 		return []*DeviceInfo{}
@@ -167,11 +166,11 @@ func DecodeNodeDevices(str string) []*DeviceInfo {
 				continue
 			}
 			count, err := strconv.ParseInt(items[1], 10, 32)
-			if err != nil {
+			if err != nil && !errors.Is(err, strconv.ErrRange) {
 				continue
 			}
 			devmem, err := strconv.ParseInt(items[2], 10, 32)
-			if err != nil {
+			if err != nil && !errors.Is(err, strconv.ErrRange) {
 				continue
 			}
 			health, err := strconv.ParseBool(items[4])
@@ -553,48 +552,6 @@ func LoadConfig(path string) (*config.Config, error) {
 		return nil, err
 	}
 	return &yamlData, nil
-}
-
-func GenerateVirtualDeviceID(id uint, fakeCounter uint) string {
-	return fmt.Sprintf("%d-%d", id, fakeCounter)
-}
-
-// GetDevices returns virtual devices and all physical devices by index.
-func GetDevices(gpuMemoryFactor uint) ([]*pluginapi.Device, map[uint]string) {
-	n, ret := config.Nvml().DeviceGetCount()
-	if ret != nvml.SUCCESS {
-		klog.Fatalf("call nvml.DeviceGetCount with error: %v", ret)
-	}
-
-	var virtualDevs []*pluginapi.Device
-	deviceByIndex := map[uint]string{}
-	for i := uint(0); i < uint(n); i++ {
-		d, ret := config.Nvml().DeviceGetHandleByIndex(int(i))
-		if ret != nvml.SUCCESS {
-			klog.Fatalf("call nvml.DeviceGetHandleByIndex with error: %v", ret)
-		}
-		uuid, ret := d.GetUUID()
-		if ret != nvml.SUCCESS {
-			klog.Fatalf("call GetUUID with error: %v", ret)
-		}
-		id := i
-		deviceByIndex[id] = uuid
-		memory, ret := d.GetMemoryInfo()
-		if ret != nvml.SUCCESS {
-			klog.Fatalf("call GetMemoryInfo with error: %v", ret)
-		}
-		deviceGPUMemory := uint(memory.Total / (1024 * 1024))
-		for j := uint(0); j < deviceGPUMemory/gpuMemoryFactor; j++ {
-			klog.V(4).Infof("adding virtual device: %d", j)
-			fakeID := GenerateVirtualDeviceID(id, j)
-			virtualDevs = append(virtualDevs, &pluginapi.Device{
-				ID:     fakeID,
-				Health: pluginapi.Healthy,
-			})
-		}
-	}
-
-	return virtualDevs, deviceByIndex
 }
 
 func GetDeviceNums() (int, error) {

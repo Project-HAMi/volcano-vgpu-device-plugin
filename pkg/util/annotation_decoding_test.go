@@ -25,9 +25,7 @@ import (
 func TestDecodeNodeDevicesRejectsInvalidFields(t *testing.T) {
 	for _, bad := range []string{
 		"GPU-bad,invalid,4096,NVIDIA,true:",
-		"GPU-bad,2147483648,4096,NVIDIA,true:",
 		"GPU-bad,10,invalid,NVIDIA,true:",
-		"GPU-bad,10,2147483648,NVIDIA,true:",
 		"GPU-bad,10,4096,NVIDIA,invalid:",
 	} {
 		t.Run(bad, func(t *testing.T) {
