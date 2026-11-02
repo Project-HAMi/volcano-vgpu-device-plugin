@@ -39,7 +39,6 @@ import (
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
-	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 	"tags.cncf.io/container-device-interface/specs-go"
 	"volcano.sh/k8s-device-plugin/pkg/config"
 	"volcano.sh/k8s-device-plugin/pkg/util/client"
@@ -154,6 +153,7 @@ func getTimeFromPodAnnotation(pod *v1.Pod, key string) uint64 {
 	return predicateTime
 }
 
+// DecodeNodeDevices skips malformed entries and clamps numeric overflow to int32 bounds.
 func DecodeNodeDevices(str string) []*DeviceInfo {
 	if !strings.Contains(str, ":") {
 		return []*DeviceInfo{}
@@ -166,9 +166,18 @@ func DecodeNodeDevices(str string) []*DeviceInfo {
 			if len(items) < 5 {
 				continue
 			}
-			count, _ := strconv.ParseInt(items[1], 10, 32)
-			devmem, _ := strconv.ParseInt(items[2], 10, 32)
-			health, _ := strconv.ParseBool(items[4])
+			count, err := strconv.ParseInt(items[1], 10, 32)
+			if err != nil && !errors.Is(err, strconv.ErrRange) {
+				continue
+			}
+			devmem, err := strconv.ParseInt(items[2], 10, 32)
+			if err != nil && !errors.Is(err, strconv.ErrRange) {
+				continue
+			}
+			health, err := strconv.ParseBool(items[4])
+			if err != nil {
+				continue
+			}
 			i := DeviceInfo{
 				Id:     items[0],
 				Count:  int32(count),
@@ -208,6 +217,8 @@ func EncodePodDevices(pd PodDevices) string {
 	return strings.Join(ss, ";")
 }
 
+// DecodeContainerDevices skips malformed entries but still counts them, so an
+// invalid device request cannot match an allocation for fewer devices.
 func DecodeContainerDevices(str string) (c ContainerDevices, count int) {
 	deviceCount := 0
 	if len(str) == 0 {
@@ -221,7 +232,7 @@ func DecodeContainerDevices(str string) (c ContainerDevices, count int) {
 	}
 	for _, val := range cd {
 		if strings.Contains(val, ",") {
-			// a truncated entry still counts, so the pod cannot match a smaller request
+			// A malformed entry still counts, so the pod cannot match a smaller request.
 			deviceCount++
 			tmpstr := strings.Split(val, ",")
 			if len(tmpstr) < 4 {
@@ -229,9 +240,15 @@ func DecodeContainerDevices(str string) (c ContainerDevices, count int) {
 			}
 			tmpdev.UUID = tmpstr[0]
 			tmpdev.Type = tmpstr[1]
-			devmem, _ := strconv.ParseInt(tmpstr[2], 10, 32)
+			devmem, err := strconv.ParseInt(tmpstr[2], 10, 32)
+			if err != nil {
+				continue
+			}
 			tmpdev.Usedmem = int32(devmem)
-			devcores, _ := strconv.ParseInt(tmpstr[3], 10, 32)
+			devcores, err := strconv.ParseInt(tmpstr[3], 10, 32)
+			if err != nil {
+				continue
+			}
 			tmpdev.Usedcores = int32(devcores)
 			contdev = append(contdev, tmpdev)
 			klog.V(4).Infoln("val=", val)
@@ -305,17 +322,36 @@ func EraseNextDeviceTypeFromAnnotation(dtype string, p v1.Pod) error {
 	return PatchPodAnnotations(&p, newAnnos)
 }
 
+// PodAllocationTrySuccess confirms allocation using the latest pod annotations.
+// A failed refresh leaves the pod's allocation state and node lock unchanged.
+// The Volcano scheduler reclaims locks older than five minutes on its next
+// LockNode attempt if no later allocation completes and releases the lock.
 func PodAllocationTrySuccess(nodeName string, pod *v1.Pod) {
-	refreshed, _ := client.GetClient().CoreV1().Pods(pod.Namespace).Get(context.Background(), pod.Name, metav1.GetOptions{})
+	complete, err := podAllocationComplete(client.GetClient(), pod)
+	if err != nil {
+		klog.Errorf("cannot confirm allocation for pod %s/%s: %v", pod.Namespace, pod.Name, err)
+		return
+	}
+	if !complete {
+		return
+	}
+	klog.Infoln("AllDevicesAllocateSuccess releasing lock")
+	PodAllocationSuccess(nodeName, pod)
+}
+
+func podAllocationComplete(kubeClient kubernetes.Interface, pod *v1.Pod) (bool, error) {
+	refreshed, err := kubeClient.CoreV1().Pods(pod.Namespace).Get(context.Background(), pod.Name, metav1.GetOptions{})
+	if err != nil {
+		return false, err
+	}
 	annos := refreshed.Annotations[AssignedIDsToAllocateAnnotations]
 	klog.Infoln("TrySuccess:", annos)
 	for _, val := range DevicesToHandle {
 		if strings.Contains(annos, val) {
-			return
+			return false, nil
 		}
 	}
-	klog.Infoln("AllDevicesAllocateSuccess releasing lock")
-	PodAllocationSuccess(nodeName, pod)
+	return true, nil
 }
 
 func PodAllocationSuccess(nodeName string, pod *v1.Pod) {
@@ -517,48 +553,6 @@ func LoadConfig(path string) (*config.Config, error) {
 		return nil, err
 	}
 	return &yamlData, nil
-}
-
-func GenerateVirtualDeviceID(id uint, fakeCounter uint) string {
-	return fmt.Sprintf("%d-%d", id, fakeCounter)
-}
-
-// GetDevices returns virtual devices and all physical devices by index.
-func GetDevices(gpuMemoryFactor uint) ([]*pluginapi.Device, map[uint]string) {
-	n, ret := config.Nvml().DeviceGetCount()
-	if ret != nvml.SUCCESS {
-		klog.Fatalf("call nvml.DeviceGetCount with error: %v", ret)
-	}
-
-	var virtualDevs []*pluginapi.Device
-	deviceByIndex := map[uint]string{}
-	for i := uint(0); i < uint(n); i++ {
-		d, ret := config.Nvml().DeviceGetHandleByIndex(int(i))
-		if ret != nvml.SUCCESS {
-			klog.Fatalf("call nvml.DeviceGetHandleByIndex with error: %v", ret)
-		}
-		uuid, ret := d.GetUUID()
-		if ret != nvml.SUCCESS {
-			klog.Fatalf("call GetUUID with error: %v", ret)
-		}
-		id := i
-		deviceByIndex[id] = uuid
-		memory, ret := d.GetMemoryInfo()
-		if ret != nvml.SUCCESS {
-			klog.Fatalf("call GetMemoryInfo with error: %v", ret)
-		}
-		deviceGPUMemory := uint(memory.Total / (1024 * 1024))
-		for j := uint(0); j < deviceGPUMemory/gpuMemoryFactor; j++ {
-			klog.V(4).Infof("adding virtual device: %d", j)
-			fakeID := GenerateVirtualDeviceID(id, j)
-			virtualDevs = append(virtualDevs, &pluginapi.Device{
-				ID:     fakeID,
-				Health: pluginapi.Healthy,
-			})
-		}
-	}
-
-	return virtualDevs, deviceByIndex
 }
 
 func GetDeviceNums() (int, error) {
