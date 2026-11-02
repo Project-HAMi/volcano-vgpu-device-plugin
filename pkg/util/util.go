@@ -154,6 +154,7 @@ func getTimeFromPodAnnotation(pod *v1.Pod, key string) uint64 {
 	return predicateTime
 }
 
+// DecodeNodeDevices skips entries with malformed fields or values outside int32 range.
 func DecodeNodeDevices(str string) []*DeviceInfo {
 	if !strings.Contains(str, ":") {
 		return []*DeviceInfo{}
@@ -166,9 +167,18 @@ func DecodeNodeDevices(str string) []*DeviceInfo {
 			if len(items) < 5 {
 				continue
 			}
-			count, _ := strconv.ParseInt(items[1], 10, 32)
-			devmem, _ := strconv.ParseInt(items[2], 10, 32)
-			health, _ := strconv.ParseBool(items[4])
+			count, err := strconv.ParseInt(items[1], 10, 32)
+			if err != nil {
+				continue
+			}
+			devmem, err := strconv.ParseInt(items[2], 10, 32)
+			if err != nil {
+				continue
+			}
+			health, err := strconv.ParseBool(items[4])
+			if err != nil {
+				continue
+			}
 			i := DeviceInfo{
 				Id:     items[0],
 				Count:  int32(count),
@@ -208,6 +218,8 @@ func EncodePodDevices(pd PodDevices) string {
 	return strings.Join(ss, ";")
 }
 
+// DecodeContainerDevices skips malformed entries but still counts them, so an
+// invalid device request cannot match an allocation for fewer devices.
 func DecodeContainerDevices(str string) (c ContainerDevices, count int) {
 	deviceCount := 0
 	if len(str) == 0 {
@@ -221,7 +233,7 @@ func DecodeContainerDevices(str string) (c ContainerDevices, count int) {
 	}
 	for _, val := range cd {
 		if strings.Contains(val, ",") {
-			// a truncated entry still counts, so the pod cannot match a smaller request
+			// A malformed entry still counts, so the pod cannot match a smaller request.
 			deviceCount++
 			tmpstr := strings.Split(val, ",")
 			if len(tmpstr) < 4 {
@@ -229,9 +241,15 @@ func DecodeContainerDevices(str string) (c ContainerDevices, count int) {
 			}
 			tmpdev.UUID = tmpstr[0]
 			tmpdev.Type = tmpstr[1]
-			devmem, _ := strconv.ParseInt(tmpstr[2], 10, 32)
+			devmem, err := strconv.ParseInt(tmpstr[2], 10, 32)
+			if err != nil {
+				continue
+			}
 			tmpdev.Usedmem = int32(devmem)
-			devcores, _ := strconv.ParseInt(tmpstr[3], 10, 32)
+			devcores, err := strconv.ParseInt(tmpstr[3], 10, 32)
+			if err != nil {
+				continue
+			}
 			tmpdev.Usedcores = int32(devcores)
 			contdev = append(contdev, tmpdev)
 			klog.V(4).Infoln("val=", val)

@@ -19,7 +19,6 @@ package util
 import (
 	"context"
 	"errors"
-	"math"
 	"reflect"
 	"testing"
 
@@ -174,11 +173,8 @@ func TestLoadConfigFromCMStopsOnNonNotFoundError(t *testing.T) {
 
 func TestDecodeNodeDevicesOutOfRange(t *testing.T) {
 	got := DecodeNodeDevices("GPU-a,4294967297,4294967298,NVIDIA,true:")
-	if len(got) != 1 {
-		t.Fatalf("got %d devices, want 1", len(got))
-	}
-	if got[0].Count != math.MaxInt32 || got[0].Devmem != math.MaxInt32 {
-		t.Fatalf("out-of-range values must clamp, not wrap: count=%d devmem=%d", got[0].Count, got[0].Devmem)
+	if len(got) != 0 {
+		t.Fatalf("out-of-range values must not advertise a device: %+v", got)
 	}
 }
 
