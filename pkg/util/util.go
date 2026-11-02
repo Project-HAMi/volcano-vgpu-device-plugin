@@ -305,17 +305,34 @@ func EraseNextDeviceTypeFromAnnotation(dtype string, p v1.Pod) error {
 	return PatchPodAnnotations(&p, newAnnos)
 }
 
+// PodAllocationTrySuccess confirms allocation using the latest pod annotations.
+// A failed refresh leaves the pod's allocation state and node lock unchanged.
 func PodAllocationTrySuccess(nodeName string, pod *v1.Pod) {
-	refreshed, _ := client.GetClient().CoreV1().Pods(pod.Namespace).Get(context.Background(), pod.Name, metav1.GetOptions{})
+	complete, err := podAllocationComplete(client.GetClient(), pod)
+	if err != nil {
+		klog.Errorf("cannot confirm allocation for pod %s/%s: %v", pod.Namespace, pod.Name, err)
+		return
+	}
+	if !complete {
+		return
+	}
+	klog.Infoln("AllDevicesAllocateSuccess releasing lock")
+	PodAllocationSuccess(nodeName, pod)
+}
+
+func podAllocationComplete(kubeClient kubernetes.Interface, pod *v1.Pod) (bool, error) {
+	refreshed, err := kubeClient.CoreV1().Pods(pod.Namespace).Get(context.Background(), pod.Name, metav1.GetOptions{})
+	if err != nil {
+		return false, err
+	}
 	annos := refreshed.Annotations[AssignedIDsToAllocateAnnotations]
 	klog.Infoln("TrySuccess:", annos)
 	for _, val := range DevicesToHandle {
 		if strings.Contains(annos, val) {
-			return
+			return false, nil
 		}
 	}
-	klog.Infoln("AllDevicesAllocateSuccess releasing lock")
-	PodAllocationSuccess(nodeName, pod)
+	return true, nil
 }
 
 func PodAllocationSuccess(nodeName string, pod *v1.Pod) {
