@@ -32,6 +32,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
@@ -39,12 +40,13 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 
 	spec "volcano.sh/k8s-device-plugin/api/config/v1"
+	"volcano.sh/k8s-device-plugin/pkg/config"
 	"volcano.sh/k8s-device-plugin/pkg/rm"
 	"volcano.sh/k8s-device-plugin/pkg/util"
 	"volcano.sh/k8s-device-plugin/pkg/util/nodelock"
 )
 
-func TestAllocateResolutionErrorKeepsPodEligible(t *testing.T) {
+func TestAllocateResolutionErrorKeepsPodLockedForRetry(t *testing.T) {
 	// Isolate the process-wide Kubernetes client without adding a global setter.
 	const worker = "VOLCANO_ALLOCATION_RETRY_TEST"
 	if os.Getenv(worker) != "1" {
@@ -52,7 +54,7 @@ func TestAllocateResolutionErrorKeepsPodEligible(t *testing.T) {
 		require.NoError(t, err)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, executable, "-test.run=^TestAllocateResolutionErrorKeepsPodEligible$", "-test.v")
+		cmd := exec.CommandContext(ctx, executable, "-test.run=^TestAllocateResolutionErrorKeepsPodLockedForRetry$", "-test.v")
 		cmd.Env = append(os.Environ(), worker+"=1")
 		output, err := cmd.CombinedOutput()
 		require.NoError(t, err, "%s", output)
@@ -63,14 +65,18 @@ func TestAllocateResolutionErrorKeepsPodEligible(t *testing.T) {
 	requested := util.ContainerDevices{{UUID: "GPU-a[group1-0]", Type: util.NvidiaGPUDevice, Usedmem: 512, Usedcores: 50}}
 	pod := &corev1.Pod{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},
-		ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: namespace, Annotations: map[string]string{
+		ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: namespace, UID: "pod-a", Annotations: map[string]string{
 			util.AssignedNodeAnnotations:          nodeName,
 			util.AssignedIDsToAllocateAnnotations: util.EncodeContainerDevices(requested),
 			util.DeviceBindPhase:                  util.DeviceBindAllocating,
 		}},
-		Spec:   corev1.PodSpec{Containers: []corev1.Container{{Name: "gpu"}}},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "gpu", Resources: corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{corev1.ResourceName(util.ResourceName): resource.MustParse("1")},
+		}}}},
 		Status: corev1.PodStatus{Phase: corev1.PodPending},
 	}
+	otherPod := pod.DeepCopy()
+	otherPod.Name, otherPod.UID, otherPod.Annotations = "gpu-pod-b", "pod-b", nil
 	node := &corev1.Node{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Node"},
 		ObjectMeta: metav1.ObjectMeta{Name: nodeName, Annotations: map[string]string{
@@ -78,7 +84,7 @@ func TestAllocateResolutionErrorKeepsPodEligible(t *testing.T) {
 			"other":             "unchanged",
 		}},
 	}
-	cs := fake.NewClientset(pod, node)
+	cs := fake.NewClientset(pod, otherPod, node)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var result interface{}
 		var err error
@@ -139,15 +145,27 @@ current-context: test
 `, server.URL)), 0600))
 	t.Setenv("KUBECONFIG", kubeconfig)
 	t.Setenv("NODE_NAME", nodeName)
-	plugin := &nvidiaDevicePlugin{rm: &rm.ResourceManagerMock{
-		ResourceFunc: func() spec.ResourceName { return spec.ResourceName(util.ResourceName) },
-	}}
+	// Use MIG mode to exercise a successful retry without HAMi-core host mounts.
+	config.Mode = "mig"
+	deviceIDStrategy := spec.DeviceIDStrategyUUID
+	pluginConfig := &spec.Config{}
+	pluginConfig.Flags.Plugin = &spec.PluginCommandLineFlags{DeviceIDStrategy: &deviceIDStrategy}
+	plugin := &nvidiaDevicePlugin{
+		rm: &rm.ResourceManagerMock{
+			ResourceFunc: func() spec.ResourceName { return spec.ResourceName(util.ResourceName) },
+		},
+		config:               pluginConfig,
+		deviceListStrategies: spec.DeviceListStrategies{spec.DeviceListStrategyEnvVar: true},
+	}
 	resolutionErr := errors.New("temporary MIG UUID lookup failure")
 	calls := 0
 	resolve := func(devices util.ContainerDevices) ([]string, error) {
 		calls++
 		require.Equal(t, requested, devices)
-		return nil, resolutionErr
+		if calls <= 2 {
+			return nil, resolutionErr
+		}
+		return []string{"MIG-a"}, nil
 	}
 	request := &pluginapi.AllocateRequest{ContainerRequests: []*pluginapi.ContainerAllocateRequest{{DevicesIds: []string{"GPU-a-0"}}}}
 	for attempt := 0; attempt < 2; attempt++ {
@@ -155,19 +173,36 @@ current-context: test
 		require.Nil(t, response)
 		require.ErrorIs(t, err, resolutionErr)
 		require.ErrorContains(t, err, "resolve allocated devices")
+		// The scheduler must not assign Pod B while Pod A is awaiting its retry.
+		require.ErrorContains(t, nodelock.LockNode(nodeName, util.VGPUDeviceName), "has been locked within 5 minutes",
+			"another Pod must not acquire the retrying Pod's node lock")
 		updated, err := cs.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
 		require.NoError(t, err)
-		require.NotContains(t, updated.Annotations, util.VGPUDeviceName)
-		require.Equal(t, "unchanged", updated.Annotations["other"])
+		require.Equal(t, node.Annotations, updated.Annotations)
 		retryPod, err := util.GetPendingPod(nodeName, 1)
 		require.NoError(t, err, "the Pod must remain eligible after a transient resolution error")
+		require.Equal(t, pod.UID, retryPod.UID)
 		require.Equal(t, pod.Annotations, retryPod.Annotations)
-		if attempt == 0 {
-			require.NoError(t, nodelock.LockNode(nodeName, util.VGPUDeviceName))
-		}
 	}
 	require.Equal(t, 2, calls, "both allocation attempts must reach device resolution")
 	for _, action := range cs.Actions() {
 		require.False(t, action.Matches("patch", "pods"), "resolution errors must not patch the Pod")
+		require.False(t, action.Matches("update", "nodes"), "resolution errors must leave the node lock intact")
 	}
+	response, err := plugin.allocate(context.Background(), request, resolve)
+	require.NoError(t, err)
+	require.Len(t, response.ContainerResponses, 1)
+	require.Equal(t, "MIG-a", response.ContainerResponses[0].Envs["NVIDIA_VISIBLE_DEVICES"])
+	require.Equal(t, 3, calls)
+	allocated, err := cs.CoreV1().Pods(namespace).Get(context.Background(), podName, metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Empty(t, allocated.Annotations[util.AssignedIDsToAllocateAnnotations])
+	require.Equal(t, util.DeviceBindSuccess, allocated.Annotations[util.DeviceBindPhase])
+	updated, err := cs.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
+	require.NoError(t, err)
+	require.NotContains(t, updated.Annotations, util.VGPUDeviceName)
+	unassigned, err := cs.CoreV1().Pods(namespace).Get(context.Background(), otherPod.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Equal(t, otherPod.Annotations, unassigned.Annotations)
+	require.NoError(t, nodelock.LockNode(nodeName, util.VGPUDeviceName), "Pod B can acquire the lock after Pod A completes")
 }

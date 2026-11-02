@@ -441,10 +441,8 @@ func (plugin *nvidiaDevicePlugin) allocate(ctx context.Context, reqs *pluginapi.
 
 			deviceIDs, err := resolveDevices(devreq)
 			if err != nil {
-				// Leave the pending request eligible for retry after a lookup failure.
-				if lerr := nodelock.ReleaseNodeLock(nodeName, util.VGPUDeviceName); lerr != nil {
-					klog.Errorf("release node lock failed: %v", lerr)
-				}
+				// Keep the Pod eligible and its lock held so another Pod cannot
+				// acquire the allocation slot while this request awaits a retry.
 				return nil, fmt.Errorf("resolve allocated devices: %w", err)
 			}
 			response, err := plugin.getAllocateResponse(deviceIDs)
