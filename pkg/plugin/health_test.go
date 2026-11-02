@@ -265,8 +265,9 @@ func TestHealthDuplicateEvent(t *testing.T) {
 		}
 		select {
 		case response := <-responses:
-			require.Len(t, response.Devices, 2)
+			ids := make([]string, 0, len(response.Devices))
 			for _, d := range response.Devices {
+				ids = append(ids, d.ID)
 				switch d.ID {
 				case "gpu0-0":
 					require.Equal(t, want, d.Health)
@@ -276,6 +277,7 @@ func TestHealthDuplicateEvent(t *testing.T) {
 					t.Fatalf("unexpected device %q", d.ID)
 				}
 			}
+			require.ElementsMatch(t, []string{"gpu0-0", "gpu1-0"}, ids)
 		case <-ctx.Done():
 			t.Fatal("stream did not send the expected health snapshot")
 		}
@@ -293,10 +295,12 @@ func TestHealthDuplicateEvent(t *testing.T) {
 	notifyHealth(t, events, devices[1])
 	select {
 	case response := <-responses:
-		require.Len(t, response.Devices, 2)
+		ids := make([]string, 0, len(response.Devices))
 		for _, d := range response.Devices {
+			ids = append(ids, d.ID)
 			require.Equal(t, pluginapi.Unhealthy, d.Health)
 		}
+		require.ElementsMatch(t, []string{"gpu0-0", "gpu1-0"}, ids)
 	case <-ctx.Done():
 		t.Fatal("stream did not send the gpu1 health change")
 	}
