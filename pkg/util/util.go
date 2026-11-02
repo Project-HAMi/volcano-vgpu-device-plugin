@@ -324,6 +324,8 @@ func EraseNextDeviceTypeFromAnnotation(dtype string, p v1.Pod) error {
 
 // PodAllocationTrySuccess confirms allocation using the latest pod annotations.
 // A failed refresh leaves the pod's allocation state and node lock unchanged.
+// The Volcano scheduler reclaims locks older than five minutes on its next
+// LockNode attempt if no later allocation completes and releases the lock.
 func PodAllocationTrySuccess(nodeName string, pod *v1.Pod) {
 	complete, err := podAllocationComplete(client.GetClient(), pod)
 	if err != nil {
@@ -558,36 +560,28 @@ func GenerateVirtualDeviceID(id uint, fakeCounter uint) string {
 }
 
 // GetDevices returns virtual devices and all physical devices by index.
-// It returns no inventory if enumeration fails or the memory factor is zero.
-func GetDevices(gpuMemoryFactor uint) ([]*pluginapi.Device, map[uint]string, error) {
-	return getDevices(config.Nvml(), gpuMemoryFactor)
-}
-
-func getDevices(lib nvml.Interface, gpuMemoryFactor uint) ([]*pluginapi.Device, map[uint]string, error) {
-	if gpuMemoryFactor == 0 {
-		return nil, nil, errors.New("gpu memory factor must be greater than zero")
-	}
-	n, ret := lib.DeviceGetCount()
+func GetDevices(gpuMemoryFactor uint) ([]*pluginapi.Device, map[uint]string) {
+	n, ret := config.Nvml().DeviceGetCount()
 	if ret != nvml.SUCCESS {
-		return nil, nil, fmt.Errorf("get NVML device count: %v", ret)
+		klog.Fatalf("call nvml.DeviceGetCount with error: %v", ret)
 	}
 
 	var virtualDevs []*pluginapi.Device
 	deviceByIndex := map[uint]string{}
 	for i := uint(0); i < uint(n); i++ {
-		d, ret := lib.DeviceGetHandleByIndex(int(i))
+		d, ret := config.Nvml().DeviceGetHandleByIndex(int(i))
 		if ret != nvml.SUCCESS {
-			return nil, nil, fmt.Errorf("get NVML device %d: %v", i, ret)
+			klog.Fatalf("call nvml.DeviceGetHandleByIndex with error: %v", ret)
 		}
 		uuid, ret := d.GetUUID()
 		if ret != nvml.SUCCESS {
-			return nil, nil, fmt.Errorf("get UUID for device %d: %v", i, ret)
+			klog.Fatalf("call GetUUID with error: %v", ret)
 		}
 		id := i
 		deviceByIndex[id] = uuid
 		memory, ret := d.GetMemoryInfo()
 		if ret != nvml.SUCCESS {
-			return nil, nil, fmt.Errorf("get memory for device %d: %v", i, ret)
+			klog.Fatalf("call GetMemoryInfo with error: %v", ret)
 		}
 		deviceGPUMemory := uint(memory.Total / (1024 * 1024))
 		for j := uint(0); j < deviceGPUMemory/gpuMemoryFactor; j++ {
@@ -600,7 +594,7 @@ func getDevices(lib nvml.Interface, gpuMemoryFactor uint) ([]*pluginapi.Device, 
 		}
 	}
 
-	return virtualDevs, deviceByIndex, nil
+	return virtualDevs, deviceByIndex
 }
 
 func GetDeviceNums() (int, error) {

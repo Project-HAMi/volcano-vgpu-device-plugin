@@ -25,71 +25,25 @@ import (
 
 type errorTestDevice struct {
 	nvml.Device
-	uuid      string
-	uuidRet   nvml.Return
-	memoryRet nvml.Return
+	uuid    string
+	uuidRet nvml.Return
 }
 
 func (d *errorTestDevice) GetUUID() (string, nvml.Return) { return d.uuid, d.uuidRet }
-func (d *errorTestDevice) GetMemoryInfo() (nvml.Memory, nvml.Return) {
-	return nvml.Memory{Total: 2 * 1024 * 1024}, d.memoryRet
-}
 
 type errorTestNVML struct {
 	nvml.Interface
 	device    nvml.Device
 	migDevice nvml.Device
-	countRet  nvml.Return
 	handleRet nvml.Return
 	migRet    nvml.Return
 }
 
-func (l *errorTestNVML) DeviceGetCount() (int, nvml.Return) { return 1, l.countRet }
-func (l *errorTestNVML) DeviceGetHandleByIndex(int) (nvml.Device, nvml.Return) {
-	return l.device, l.handleRet
-}
 func (l *errorTestNVML) DeviceGetHandleByUUID(string) (nvml.Device, nvml.Return) {
 	return l.device, l.handleRet
 }
 func (l *errorTestNVML) DeviceGetMigDeviceHandleByIndex(nvml.Device, int) (nvml.Device, nvml.Return) {
 	return l.migDevice, l.migRet
-}
-
-func TestGetDevicesReturnsErrors(t *testing.T) {
-	for _, stage := range []string{"count", "handle", "uuid", "memory", "zero factor"} {
-		t.Run(stage, func(t *testing.T) {
-			dev := &errorTestDevice{uuid: "GPU-a"}
-			lib := &errorTestNVML{device: dev}
-			factor := uint(1)
-			switch stage {
-			case "count":
-				lib.countRet = nvml.ERROR_UNKNOWN
-			case "handle":
-				lib.handleRet = nvml.ERROR_UNKNOWN
-			case "uuid":
-				dev.uuidRet = nvml.ERROR_UNKNOWN
-			case "memory":
-				dev.memoryRet = nvml.ERROR_UNKNOWN
-			case "zero factor":
-				factor = 0
-			}
-			devices, indices, err := getDevices(lib, factor)
-			if err == nil || devices != nil || indices != nil {
-				t.Fatalf("discovery failure returned devices=%v indices=%v error=%v", devices, indices, err)
-			}
-		})
-	}
-}
-
-func TestGetDevicesSuccess(t *testing.T) {
-	lib := &errorTestNVML{device: &errorTestDevice{uuid: "GPU-a"}}
-	devices, indices, err := getDevices(lib, 1)
-	if err != nil || len(devices) != 2 || len(indices) != 1 || indices[0] != "GPU-a" {
-		t.Fatalf("devices=%v indices=%v error=%v", devices, indices, err)
-	}
-	if devices[0].ID != "0-0" || devices[1].ID != "0-1" || devices[0].Health != "Healthy" || devices[1].Health != "Healthy" {
-		t.Fatalf("unexpected virtual devices: %+v", devices)
-	}
 }
 
 func TestGetMigUUIDFromIndexErrorsAndFallback(t *testing.T) {
