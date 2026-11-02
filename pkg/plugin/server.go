@@ -434,7 +434,12 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 				return &pluginapi.AllocateResponse{}, errors.New("device number not matched")
 			}
 
-			response, err := plugin.getAllocateResponse(plugin.GetContainerDeviceStrArray(devreq))
+			deviceIDs, err := plugin.GetContainerDeviceStrArray(devreq)
+			if err != nil {
+				util.PodAllocationFailed(nodeName, current)
+				return nil, fmt.Errorf("resolve allocated devices: %w", err)
+			}
+			response, err := plugin.getAllocateResponse(deviceIDs)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get allocate response: %v", err)
 			}
@@ -881,7 +886,9 @@ func (plugin *nvidiaDevicePlugin) ApplyMigTemplate() {
 	klog.Infoln("Mig apply", outStr)
 }
 
-func (plugin *nvidiaDevicePlugin) GetContainerDeviceStrArray(c util.ContainerDevices) []string {
+// GetContainerDeviceStrArray resolves container device UUIDs and returns any MIG
+// UUID lookup error to the allocation caller.
+func (plugin *nvidiaDevicePlugin) GetContainerDeviceStrArray(c util.ContainerDevices) ([]string, error) {
 	tmp := []string{}
 	needsreset := false
 	position := 0
@@ -924,11 +931,15 @@ func (plugin *nvidiaDevicePlugin) GetContainerDeviceStrArray(c util.ContainerDev
 					}
 				}
 			}
-			tmp = append(tmp, util.GetMigUUIDFromIndex(val.UUID, position))
+			uuid, err := util.GetMigUUIDFromIndex(val.UUID, position)
+			if err != nil {
+				return nil, err
+			}
+			tmp = append(tmp, uuid)
 		}
 	}
 	klog.V(3).Infoln("mig current=", plugin.migCurrent, ":", needsreset, "position=", position, "uuid lists", tmp)
-	return tmp
+	return tmp, nil
 }
 
 func (plugin *nvidiaDevicePlugin) GenerateMigTemplate(devtype string, devindex int, val util.ContainerDevice) (int, bool) {

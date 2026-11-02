@@ -17,7 +17,6 @@ limitations under the License.
 package util
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -559,28 +558,36 @@ func GenerateVirtualDeviceID(id uint, fakeCounter uint) string {
 }
 
 // GetDevices returns virtual devices and all physical devices by index.
-func GetDevices(gpuMemoryFactor uint) ([]*pluginapi.Device, map[uint]string) {
-	n, ret := config.Nvml().DeviceGetCount()
+// It returns no inventory if enumeration fails or the memory factor is zero.
+func GetDevices(gpuMemoryFactor uint) ([]*pluginapi.Device, map[uint]string, error) {
+	return getDevices(config.Nvml(), gpuMemoryFactor)
+}
+
+func getDevices(lib nvml.Interface, gpuMemoryFactor uint) ([]*pluginapi.Device, map[uint]string, error) {
+	if gpuMemoryFactor == 0 {
+		return nil, nil, errors.New("gpu memory factor must be greater than zero")
+	}
+	n, ret := lib.DeviceGetCount()
 	if ret != nvml.SUCCESS {
-		klog.Fatalf("call nvml.DeviceGetCount with error: %v", ret)
+		return nil, nil, fmt.Errorf("get NVML device count: %v", ret)
 	}
 
 	var virtualDevs []*pluginapi.Device
 	deviceByIndex := map[uint]string{}
 	for i := uint(0); i < uint(n); i++ {
-		d, ret := config.Nvml().DeviceGetHandleByIndex(int(i))
+		d, ret := lib.DeviceGetHandleByIndex(int(i))
 		if ret != nvml.SUCCESS {
-			klog.Fatalf("call nvml.DeviceGetHandleByIndex with error: %v", ret)
+			return nil, nil, fmt.Errorf("get NVML device %d: %v", i, ret)
 		}
 		uuid, ret := d.GetUUID()
 		if ret != nvml.SUCCESS {
-			klog.Fatalf("call GetUUID with error: %v", ret)
+			return nil, nil, fmt.Errorf("get UUID for device %d: %v", i, ret)
 		}
 		id := i
 		deviceByIndex[id] = uuid
 		memory, ret := d.GetMemoryInfo()
 		if ret != nvml.SUCCESS {
-			klog.Fatalf("call GetMemoryInfo with error: %v", ret)
+			return nil, nil, fmt.Errorf("get memory for device %d: %v", i, ret)
 		}
 		deviceGPUMemory := uint(memory.Total / (1024 * 1024))
 		for j := uint(0); j < deviceGPUMemory/gpuMemoryFactor; j++ {
@@ -593,7 +600,7 @@ func GetDevices(gpuMemoryFactor uint) ([]*pluginapi.Device, map[uint]string) {
 		}
 	}
 
-	return virtualDevs, deviceByIndex
+	return virtualDevs, deviceByIndex, nil
 }
 
 func GetDeviceNums() (int, error) {
@@ -625,37 +632,39 @@ func GetIndexAndTypeFromUUID(uuid string) (string, int) {
 	return model, index
 }
 
-func GetMigUUIDFromIndex(uuid string, idx int) string {
+// GetMigUUIDFromIndex resolves a MIG UUID, falling back to nvidia-smi when NVML
+// cannot obtain the MIG handle. Lookup and command failures are returned as errors.
+func GetMigUUIDFromIndex(uuid string, idx int) (string, error) {
+	return getMigUUIDFromIndex(config.Nvml(), uuid, idx, func() ([]byte, error) {
+		return exec.Command("nvidia-smi", "-L").Output()
+	})
+}
+
+func getMigUUIDFromIndex(lib nvml.Interface, uuid string, idx int, querySMI func() ([]byte, error)) (string, error) {
 	originuuid := strings.Split(uuid, "[")[0]
-	ndev, ret := config.Nvml().DeviceGetHandleByUUID(originuuid)
+	ndev, ret := lib.DeviceGetHandleByUUID(originuuid)
 	if ret != nvml.SUCCESS {
-		klog.Error(`nvml get device uuid error ret=`, ret)
-		panic(0)
+		return "", fmt.Errorf("get NVML device %s: %v", originuuid, ret)
 	}
-	migdev, ret := config.Nvml().DeviceGetMigDeviceHandleByIndex(ndev, idx)
+	migdev, ret := lib.DeviceGetMigDeviceHandleByIndex(ndev, idx)
 	if ret != nvml.SUCCESS {
 		klog.Error("nvml get mig dev error ret=", ret, ",idx=", idx, "using nvidia-smi -L for query")
-		cmd := exec.Command("nvidia-smi", "-L")
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-		err := cmd.Run()
+		output, err := querySMI()
 		if err != nil {
-			klog.Fatalf("nvidia-smi -L failed with %s\n", err)
+			return "", fmt.Errorf("query MIG devices with nvidia-smi -L: %w", err)
 		}
-		outStr := stdout.String()
-		uuid := GetMigUUIDFromSmiOutput(outStr, originuuid, idx)
-		return uuid
+		return GetMigUUIDFromSmiOutput(string(output), originuuid, idx)
 	}
 	res, ret := migdev.GetUUID()
 	if ret != nvml.SUCCESS {
-		klog.Error(`nvml get mig uuid error ret=`, ret)
-		panic(0)
+		return "", fmt.Errorf("get UUID for MIG device %d on %s: %v", idx, originuuid, ret)
 	}
-	return res
+	return res, nil
 }
 
-func GetMigUUIDFromSmiOutput(output string, uuid string, idx int) string {
+// GetMigUUIDFromSmiOutput finds a MIG UUID in nvidia-smi -L output, returning an
+// error if the requested device is missing or its output cannot be parsed.
+func GetMigUUIDFromSmiOutput(output string, uuid string, idx int) (string, error) {
 	migmode := false
 	for _, val := range strings.Split(output, "\n") {
 		if !strings.Contains(val, "MIG") && strings.Contains(val, uuid) {
@@ -670,21 +679,29 @@ func GetMigUUIDFromSmiOutput(output string, uuid string, idx int) string {
 			continue
 		}
 		klog.Infoln("inspecting", val)
-		num := strings.Split(val, "Device")[1]
-		num = strings.Split(num, ":")[0]
+		_, device, ok := strings.Cut(val, "Device")
+		if !ok {
+			return "", fmt.Errorf("invalid MIG device line: %q", val)
+		}
+		num, details, ok := strings.Cut(device, ":")
+		if !ok {
+			return "", fmt.Errorf("invalid MIG device line: %q", val)
+		}
 		num = strings.TrimSpace(num)
 		index, err := strconv.Atoi(num)
 		if err != nil {
-			klog.Fatal("atoi failed num=", num)
+			return "", fmt.Errorf("parse MIG device index %q: %w", num, err)
 		}
 		if index == idx {
-			outputStr := strings.Split(val, ":")[2]
-			outputStr = strings.TrimSpace(outputStr)
-			outputStr = strings.TrimRight(outputStr, ")")
-			return outputStr
+			_, outputStr, ok := strings.Cut(details, "UUID:")
+			outputStr = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(outputStr), ")"))
+			if !ok || outputStr == "" {
+				return "", fmt.Errorf("missing UUID for MIG device %d on %s", idx, uuid)
+			}
+			return outputStr, nil
 		}
 	}
-	return ""
+	return "", fmt.Errorf("MIG device %d not found on %s", idx, uuid)
 }
 
 // Enhanced ExtractMigTemplatesFromUUID with error handling.
