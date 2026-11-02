@@ -27,6 +27,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	cdiapi "tags.cncf.io/container-device-interface/pkg/cdi"
@@ -91,6 +92,10 @@ type nvidiaDevicePlugin struct {
 	health chan *rm.Device
 	stop   chan interface{}
 
+	// chMu guards health and stop, which cleanup() writes while ListAndWatch
+	// reads them concurrently (see issue #219).
+	chMu sync.Mutex
+
 	imexChannels imex.Channels
 
 	mps mpsOptions
@@ -142,15 +147,19 @@ func getPluginSocketPath(resource spec.ResourceName) string {
 
 func (plugin *nvidiaDevicePlugin) initialize() {
 	plugin.server = grpc.NewServer([]grpc.ServerOption{}...)
+	plugin.chMu.Lock()
 	plugin.health = make(chan *rm.Device)
 	plugin.stop = make(chan interface{})
+	plugin.chMu.Unlock()
 }
 
 func (plugin *nvidiaDevicePlugin) cleanup() {
+	plugin.chMu.Lock()
 	close(plugin.stop)
 	plugin.server = nil
 	plugin.health = nil
 	plugin.stop = nil
+	plugin.chMu.Unlock()
 }
 
 // Devices returns the full set of devices associated with the plugin.
@@ -332,11 +341,19 @@ func (plugin *nvidiaDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.D
 	if err := s.Send(&pluginapi.ListAndWatchResponse{Devices: plugin.apiDevices()}); err != nil {
 		return err
 	}
+	// Snapshot the channels once so that cleanup()'s concurrent writes to the
+	// plugin fields (close(stop), health/stop = nil) can never race with this
+	// loop, and a handler that outlives cleanup() still selects on the real
+	// (now closed) stop channel instead of a nil one (see issue #219).
+	plugin.chMu.Lock()
+	stop := plugin.stop
+	health := plugin.health
+	plugin.chMu.Unlock()
 	for {
 		select {
-		case <-plugin.stop:
+		case <-stop:
 			return nil
-		case d := <-plugin.health:
+		case d := <-health:
 			// Health checks report unhealthy devices; recovery is not handled here.
 			d.Health = pluginapi.Unhealthy
 			klog.Infof("'%s' device marked unhealthy: %s", plugin.rm.Resource(), d.ID)
