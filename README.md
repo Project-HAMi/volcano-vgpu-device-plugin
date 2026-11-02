@@ -99,7 +99,7 @@ spec:
         volcano.sh/vgpu-cores: 50    # optional: percent of a GPU per vGPU
 ```
 
-`nvidia-smi` inside the container shows the memory limit. A pod cannot request more vGPUs than the node has GPUs. Without the annotation, either mode may be used.
+In `hami-core` mode `nvidia-smi` inside the container shows the `vgpu-memory` limit. In `mig` mode it shows the memory of the assigned MIG instance, which comes from the configured MIG geometry. A pod cannot request more vGPUs than the node has GPUs. Without the annotation, either mode may be used.
 
 ## Metrics
 
