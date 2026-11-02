@@ -869,7 +869,13 @@ func sleepUnlessStopped(stop <-chan interface{}, d time.Duration) bool {
 	case <-stop:
 		return false
 	case <-timer.C:
-		return true
+		// Both channels can be ready; a closed stop must still win.
+		select {
+		case <-stop:
+			return false
+		default:
+			return true
+		}
 	}
 }
 

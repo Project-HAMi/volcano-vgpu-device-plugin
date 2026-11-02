@@ -61,4 +61,9 @@ func TestSleepUnlessStopped(t *testing.T) {
 	if sleepUnlessStopped(stop, time.Minute) {
 		t.Fatal("expected a closed stop channel to end the wait")
 	}
+	for range 200 {
+		if sleepUnlessStopped(stop, 0) {
+			t.Fatal("a closed stop channel must win over an expired timer")
+		}
+	}
 }
