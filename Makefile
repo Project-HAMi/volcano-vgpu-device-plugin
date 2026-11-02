@@ -12,51 +12,38 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 .DEFAULT_GOAL := all
 
-include Makefile.def
-
-##### Global variables #####
 REGISTRY ?= projecthami
-VERSION  ?= 1.0.0
+VERSION  ?= dev
 
-##### Using `BUILD_PLATFORMS=linux/arm64 make all` to build arm64 arch image locally
-##### Using `BUILD_PLATFORMS=linux/amd64,linux/arm64 make push-latest` to build and publish multi-arch image
+# BUILD_PLATFORMS=linux/arm64 make all builds an arm64 image locally.
+# BUILD_PLATFORMS=linux/amd64,linux/arm64 make push-latest publishes a multi-arch image.
 BUILD_PLATFORMS ?= linux/amd64
 
-##### Public rules #####
+IMAGE      := $(REGISTRY)/volcano-vgpu-device-plugin
+DOCKERFILE := docker/Dockerfile.ubuntu20.04
+
+.PHONY: all ubuntu20.04 push push-short push-latest
 
 all: ubuntu20.04
 
 push:
 	docker buildx build --platform $(BUILD_PLATFORMS) --push \
-		--tag $(REGISTRY)/volcano-vgpu-device-plugin:$(VERSION)-ubuntu20.04 \
-		--file docker/Dockerfile.ubuntu20.04 .
+		--tag $(IMAGE):$(VERSION)-ubuntu20.04 \
+		--file $(DOCKERFILE) .
 
 push-short:
 	docker buildx build --platform $(BUILD_PLATFORMS) --push \
-		--tag $(REGISTRY)/volcano-vgpu-device-plugin:$(VERSION)\
-		--file docker/Dockerfile.ubuntu20.04 .
+		--tag $(IMAGE):$(VERSION) \
+		--file $(DOCKERFILE) .
 
 push-latest:
 	docker buildx build --platform $(BUILD_PLATFORMS) --push \
-		--tag $(REGISTRY)/volcano-vgpu-device-plugin:latest\
-		--file docker/Dockerfile.ubuntu20.04 .
+		--tag $(IMAGE):latest \
+		--file $(DOCKERFILE) .
 
 ubuntu20.04:
 	docker buildx build --platform $(BUILD_PLATFORMS) --load \
-		--tag $(REGISTRY)/volcano-vgpu-device-plugin:$(VERSION)-ubuntu20.04 \
-		--file docker/Dockerfile.ubuntu20.04 .
-
-BIN_DIR=_output/bin
-RELEASE_DIR=_output/release
-REL_OSARCH=linux/amd64
-
-init:
-	mkdir -p ${BIN_DIR}
-	mkdir -p ${RELEASE_DIR}
-
-gen_bin: init
-	go get github.com/mitchellh/gox
-	CGO_ENABLED=1 gox -osarch=${REL_OSARCH} -ldflags ${LD_FLAGS} -output ${BIN_DIR}/${REL_OSARCH}/volcano-vgpu-device-plugin ./cmd/vgpu
+		--tag $(IMAGE):$(VERSION)-ubuntu20.04 \
+		--file $(DOCKERFILE) .
