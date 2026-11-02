@@ -368,6 +368,11 @@ func (plugin *nvidiaDevicePlugin) GetPreferredAllocation(ctx context.Context, r 
 
 // Allocate returns a list of devices.
 func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.AllocateRequest) (*pluginapi.AllocateResponse, error) {
+	return plugin.allocate(ctx, reqs, plugin.GetContainerDeviceStrArray)
+}
+
+// allocate accepts a device resolver to exercise allocation failures without GPU hardware.
+func (plugin *nvidiaDevicePlugin) allocate(ctx context.Context, reqs *pluginapi.AllocateRequest, resolveDevices func(util.ContainerDevices) ([]string, error)) (*pluginapi.AllocateResponse, error) {
 	if len(reqs.ContainerRequests) > 1 {
 		return &pluginapi.AllocateResponse{}, errors.New("multiple Container Requests not supported")
 	}
@@ -434,9 +439,12 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 				return &pluginapi.AllocateResponse{}, errors.New("device number not matched")
 			}
 
-			deviceIDs, err := plugin.GetContainerDeviceStrArray(devreq)
+			deviceIDs, err := resolveDevices(devreq)
 			if err != nil {
-				util.PodAllocationFailed(nodeName, current)
+				// Leave the pending request eligible for retry after a lookup failure.
+				if lerr := nodelock.ReleaseNodeLock(nodeName, util.VGPUDeviceName); lerr != nil {
+					klog.Errorf("release node lock failed: %v", lerr)
+				}
 				return nil, fmt.Errorf("resolve allocated devices: %w", err)
 			}
 			response, err := plugin.getAllocateResponse(deviceIDs)
