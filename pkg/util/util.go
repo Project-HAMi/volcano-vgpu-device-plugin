@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -583,39 +584,37 @@ func GetIndexAndTypeFromUUID(uuid string) (string, int) {
 	return model, index
 }
 
-// GetMigUUIDFromIndex resolves a MIG UUID, falling back to nvidia-smi when NVML
-// cannot obtain the MIG handle. Lookup and command failures are returned as errors.
-func GetMigUUIDFromIndex(uuid string, idx int) (string, error) {
-	return getMigUUIDFromIndex(config.Nvml(), uuid, idx, func() ([]byte, error) {
-		return exec.Command("nvidia-smi", "-L").Output()
-	})
-}
-
-func getMigUUIDFromIndex(lib nvml.Interface, uuid string, idx int, querySMI func() ([]byte, error)) (string, error) {
+func GetMigUUIDFromIndex(uuid string, idx int) string {
 	originuuid := strings.Split(uuid, "[")[0]
-	ndev, ret := lib.DeviceGetHandleByUUID(originuuid)
+	ndev, ret := config.Nvml().DeviceGetHandleByUUID(originuuid)
 	if ret != nvml.SUCCESS {
-		return "", fmt.Errorf("get NVML device %s: %v", originuuid, ret)
+		klog.Error(`nvml get device uuid error ret=`, ret)
+		panic(0)
 	}
-	migdev, ret := lib.DeviceGetMigDeviceHandleByIndex(ndev, idx)
+	migdev, ret := config.Nvml().DeviceGetMigDeviceHandleByIndex(ndev, idx)
 	if ret != nvml.SUCCESS {
 		klog.Error("nvml get mig dev error ret=", ret, ",idx=", idx, "using nvidia-smi -L for query")
-		output, err := querySMI()
+		cmd := exec.Command("nvidia-smi", "-L")
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err := cmd.Run()
 		if err != nil {
-			return "", fmt.Errorf("query MIG devices with nvidia-smi -L: %w", err)
+			klog.Fatalf("nvidia-smi -L failed with %s\n", err)
 		}
-		return GetMigUUIDFromSmiOutput(string(output), originuuid, idx)
+		outStr := stdout.String()
+		uuid := GetMigUUIDFromSmiOutput(outStr, originuuid, idx)
+		return uuid
 	}
 	res, ret := migdev.GetUUID()
 	if ret != nvml.SUCCESS {
-		return "", fmt.Errorf("get UUID for MIG device %d on %s: %v", idx, originuuid, ret)
+		klog.Error(`nvml get mig uuid error ret=`, ret)
+		panic(0)
 	}
-	return res, nil
+	return res
 }
 
-// GetMigUUIDFromSmiOutput finds a MIG UUID in nvidia-smi -L output, returning an
-// error if the requested device is missing or its output cannot be parsed.
-func GetMigUUIDFromSmiOutput(output string, uuid string, idx int) (string, error) {
+func GetMigUUIDFromSmiOutput(output string, uuid string, idx int) string {
 	migmode := false
 	for _, val := range strings.Split(output, "\n") {
 		if !strings.Contains(val, "MIG") && strings.Contains(val, uuid) {
@@ -630,29 +629,21 @@ func GetMigUUIDFromSmiOutput(output string, uuid string, idx int) (string, error
 			continue
 		}
 		klog.Infoln("inspecting", val)
-		_, device, ok := strings.Cut(val, "Device")
-		if !ok {
-			return "", fmt.Errorf("invalid MIG device line: %q", val)
-		}
-		num, details, ok := strings.Cut(device, ":")
-		if !ok {
-			return "", fmt.Errorf("invalid MIG device line: %q", val)
-		}
+		num := strings.Split(val, "Device")[1]
+		num = strings.Split(num, ":")[0]
 		num = strings.TrimSpace(num)
 		index, err := strconv.Atoi(num)
 		if err != nil {
-			return "", fmt.Errorf("parse MIG device index %q: %w", num, err)
+			klog.Fatal("atoi failed num=", num)
 		}
 		if index == idx {
-			_, outputStr, ok := strings.Cut(details, "UUID:")
-			outputStr = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(outputStr), ")"))
-			if !ok || outputStr == "" {
-				return "", fmt.Errorf("missing UUID for MIG device %d on %s", idx, uuid)
-			}
-			return outputStr, nil
+			outputStr := strings.Split(val, ":")[2]
+			outputStr = strings.TrimSpace(outputStr)
+			outputStr = strings.TrimRight(outputStr, ")")
+			return outputStr
 		}
 	}
-	return "", fmt.Errorf("MIG device %d not found on %s", idx, uuid)
+	return ""
 }
 
 // Enhanced ExtractMigTemplatesFromUUID with error handling.
