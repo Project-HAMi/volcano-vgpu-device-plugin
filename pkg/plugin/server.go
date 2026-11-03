@@ -232,7 +232,7 @@ func (plugin *nvidiaDevicePlugin) Start(kubeletSocket string) error {
 			klog.Infoln("Mig export", plugin.migCurrent)
 		}
 
-		go plugin.WatchAndRegister()
+		go plugin.WatchAndRegister(plugin.stop)
 	}
 	return nil
 }
@@ -838,21 +838,43 @@ func (plugin *nvidiaDevicePlugin) apiDeviceSpecs(devRoot string, ids []string) [
 	return specs
 }
 
-func (plugin *nvidiaDevicePlugin) WatchAndRegister() {
+// WatchAndRegister keeps the node device annotation current until stop is closed.
+func (plugin *nvidiaDevicePlugin) WatchAndRegister(stop <-chan interface{}) {
 	klog.Infof("into WatchAndRegister")
 	for {
 		if len(config.Mode) == 0 {
 			klog.V(5).Info("register skipped, waiting for device config to be loaded")
-			time.Sleep(time.Second * 2)
+			if !sleepUnlessStopped(stop, time.Second*2) {
+				return
+			}
 			continue
 		}
 		devices, _ := plugin.deviceSnapshot()
-		err := RegisterInAnnotation(devices)
-		if err != nil {
+		wait := time.Second * 30
+		if err := RegisterInAnnotation(devices); err != nil {
 			klog.Errorf("register error, %v", err)
-			time.Sleep(time.Second * 5)
-		} else {
-			time.Sleep(time.Second * 30)
+			wait = time.Second * 5
+		}
+		if !sleepUnlessStopped(stop, wait) {
+			return
+		}
+	}
+}
+
+// sleepUnlessStopped waits for d and reports false if stop closed first.
+func sleepUnlessStopped(stop <-chan interface{}, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-stop:
+		return false
+	case <-timer.C:
+		// Both channels can be ready; a closed stop must still win.
+		select {
+		case <-stop:
+			return false
+		default:
+			return true
 		}
 	}
 }
