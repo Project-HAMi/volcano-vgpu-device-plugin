@@ -32,6 +32,7 @@ var (
 	once       sync.Once
 )
 
+// GetClient returns the shared Kubernetes client singleton.
 func GetClient() kubernetes.Interface {
 	once.Do(func() {
 		var err error
@@ -42,6 +43,19 @@ func GetClient() kubernetes.Interface {
 		}
 	})
 	return kubeClient
+}
+
+// SetClient overrides the Kubernetes client singleton (primarily for testing).
+func SetClient(c kubernetes.Interface) {
+	kubeClient = c
+	once = sync.Once{}
+	once.Do(func() {})
+}
+
+// ResetClient resets the Kubernetes client singleton (primarily for testing).
+func ResetClient() {
+	kubeClient = nil
+	once = sync.Once{}
 }
 
 // NewClient connects to an API server.

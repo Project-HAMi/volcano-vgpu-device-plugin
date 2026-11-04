@@ -564,32 +564,34 @@ func GetDeviceNums() (int, error) {
 	return count, nil
 }
 
-func GetIndexAndTypeFromUUID(uuid string) (string, int) {
+// GetIndexAndTypeFromUUID retrieves the model name and device index for the GPU identified by the given UUID.
+func GetIndexAndTypeFromUUID(uuid string) (string, int, error) {
 	originuuid := strings.Split(uuid, "[")[0]
 	ndev, ret := config.Nvml().DeviceGetHandleByUUID(originuuid)
 	if ret != nvml.SUCCESS {
 		klog.Error("nvml get handlebyuuid error ret=", ret)
-		panic(0)
+		return "", -1, fmt.Errorf("nvml get handle by uuid %s error ret: %s", originuuid, nvml.ErrorString(ret))
 	}
 	model, ret := ndev.GetName()
 	if ret != nvml.SUCCESS {
 		klog.Error("nvml get name error ret=", ret)
-		panic(0)
+		return "", -1, fmt.Errorf("nvml get device name error ret: %s", nvml.ErrorString(ret))
 	}
 	index, ret := ndev.GetIndex()
 	if ret != nvml.SUCCESS {
 		klog.Error("nvml get index error ret=", ret)
-		panic(0)
+		return "", -1, fmt.Errorf("nvml get device index error ret: %s", nvml.ErrorString(ret))
 	}
-	return model, index
+	return model, index, nil
 }
 
-func GetMigUUIDFromIndex(uuid string, idx int) string {
+// GetMigUUIDFromIndex retrieves the MIG device UUID for the specified GPU UUID and MIG device index.
+func GetMigUUIDFromIndex(uuid string, idx int) (string, error) {
 	originuuid := strings.Split(uuid, "[")[0]
 	ndev, ret := config.Nvml().DeviceGetHandleByUUID(originuuid)
 	if ret != nvml.SUCCESS {
 		klog.Error(`nvml get device uuid error ret=`, ret)
-		panic(0)
+		return "", fmt.Errorf("nvml get device handle by uuid %s error ret: %s", originuuid, nvml.ErrorString(ret))
 	}
 	migdev, ret := config.Nvml().DeviceGetMigDeviceHandleByIndex(ndev, idx)
 	if ret != nvml.SUCCESS {
@@ -600,21 +602,26 @@ func GetMigUUIDFromIndex(uuid string, idx int) string {
 		cmd.Stderr = &stderr
 		err := cmd.Run()
 		if err != nil {
-			klog.Fatalf("nvidia-smi -L failed with %s\n", err)
+			klog.Errorf("nvidia-smi -L failed with %s: %s\n", err, stderr.String())
+			return "", fmt.Errorf("nvidia-smi -L failed with %v: %s", err, stderr.String())
 		}
 		outStr := stdout.String()
-		uuid := GetMigUUIDFromSmiOutput(outStr, originuuid, idx)
-		return uuid
+		migUUID, err := GetMigUUIDFromSmiOutput(outStr, originuuid, idx)
+		if err != nil {
+			return "", err
+		}
+		return migUUID, nil
 	}
 	res, ret := migdev.GetUUID()
 	if ret != nvml.SUCCESS {
 		klog.Error(`nvml get mig uuid error ret=`, ret)
-		panic(0)
+		return "", fmt.Errorf("nvml get mig device uuid error ret: %s", nvml.ErrorString(ret))
 	}
-	return res
+	return res, nil
 }
 
-func GetMigUUIDFromSmiOutput(output string, uuid string, idx int) string {
+// GetMigUUIDFromSmiOutput parses nvidia-smi -L output to find the MIG device UUID for a given GPU UUID and index.
+func GetMigUUIDFromSmiOutput(output string, uuid string, idx int) (string, error) {
 	migmode := false
 	for _, val := range strings.Split(output, "\n") {
 		if !strings.Contains(val, "MIG") && strings.Contains(val, uuid) {
@@ -629,21 +636,34 @@ func GetMigUUIDFromSmiOutput(output string, uuid string, idx int) string {
 			continue
 		}
 		klog.Infoln("inspecting", val)
-		num := strings.Split(val, "Device")[1]
-		num = strings.Split(num, ":")[0]
-		num = strings.TrimSpace(num)
+		deviceParts := strings.Split(val, "Device")
+		if len(deviceParts) < 2 {
+			continue
+		}
+		colonParts := strings.Split(deviceParts[1], ":")
+		if len(colonParts) < 1 {
+			continue
+		}
+		num := strings.TrimSpace(colonParts[0])
 		index, err := strconv.Atoi(num)
 		if err != nil {
-			klog.Fatal("atoi failed num=", num)
+			klog.Errorf("failed to parse MIG device index num=%q: %v", num, err)
+			return "", fmt.Errorf("failed to parse MIG device index num=%q: %w", num, err)
 		}
 		if index == idx {
-			outputStr := strings.Split(val, ":")[2]
-			outputStr = strings.TrimSpace(outputStr)
+			parts := strings.Split(val, ":")
+			if len(parts) < 3 {
+				return "", fmt.Errorf("malformed MIG line %q: missing UUID field", val)
+			}
+			outputStr := strings.TrimSpace(parts[2])
 			outputStr = strings.TrimRight(outputStr, ")")
-			return outputStr
+			if outputStr == "" {
+				return "", fmt.Errorf("malformed MIG line %q: empty UUID field", val)
+			}
+			return outputStr, nil
 		}
 	}
-	return ""
+	return "", fmt.Errorf("MIG device with index %d not found for GPU %s", idx, uuid)
 }
 
 // Enhanced ExtractMigTemplatesFromUUID with error handling.

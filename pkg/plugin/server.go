@@ -452,7 +452,13 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 				return &pluginapi.AllocateResponse{}, errors.New("device number not matched")
 			}
 
-			response, err := plugin.getAllocateResponse(plugin.GetContainerDeviceStrArray(devreq))
+			deviceStrArray, err := plugin.GetContainerDeviceStrArray(devreq)
+			if err != nil {
+				klog.Errorln("failed to get container device string array", err.Error())
+				util.PodAllocationFailed(nodeName, current)
+				return &pluginapi.AllocateResponse{}, err
+			}
+			response, err := plugin.getAllocateResponse(deviceStrArray)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get allocate response: %v", err)
 			}
@@ -920,7 +926,8 @@ func (plugin *nvidiaDevicePlugin) ApplyMigTemplate() {
 	klog.Infoln("Mig apply", outStr)
 }
 
-func (plugin *nvidiaDevicePlugin) GetContainerDeviceStrArray(c util.ContainerDevices) []string {
+// GetContainerDeviceStrArray converts container devices to device string representations, resolving MIG UUIDs where applicable.
+func (plugin *nvidiaDevicePlugin) GetContainerDeviceStrArray(c util.ContainerDevices) ([]string, error) {
 	tmp := []string{}
 	needsreset := false
 	position := 0
@@ -928,8 +935,14 @@ func (plugin *nvidiaDevicePlugin) GetContainerDeviceStrArray(c util.ContainerDev
 		if !strings.Contains(val.UUID, "[") {
 			tmp = append(tmp, val.UUID)
 		} else {
-			devtype, devindex := util.GetIndexAndTypeFromUUID(val.UUID)
+			devtype, devindex, err := util.GetIndexAndTypeFromUUID(val.UUID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get index and type from UUID %s: %w", val.UUID, err)
+			}
 			position, needsreset = plugin.GenerateMigTemplate(devtype, devindex, val)
+			if position < 0 {
+				return nil, fmt.Errorf("failed to generate MIG template for device %s", val.UUID)
+			}
 			if needsreset {
 				plugin.ApplyMigTemplate()
 				if plugin.deviceListStrategies.Includes(spec.DeviceListStrategyVolumeMounts) ||
@@ -963,13 +976,18 @@ func (plugin *nvidiaDevicePlugin) GetContainerDeviceStrArray(c util.ContainerDev
 					}
 				}
 			}
-			tmp = append(tmp, util.GetMigUUIDFromIndex(val.UUID, position))
+			migUUID, err := util.GetMigUUIDFromIndex(val.UUID, position)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get MIG UUID from index %d for device %s: %w", position, val.UUID, err)
+			}
+			tmp = append(tmp, migUUID)
 		}
 	}
 	klog.V(3).Infoln("mig current=", plugin.migCurrent, ":", needsreset, "position=", position, "uuid lists", tmp)
-	return tmp
+	return tmp, nil
 }
 
+// GenerateMigTemplate calculates the MIG template configuration and returns the device position and whether reconfiguration is needed.
 func (plugin *nvidiaDevicePlugin) GenerateMigTemplate(devtype string, devindex int, val util.ContainerDevice) (int, bool) {
 	needsreset := false
 	position := -1 // Initialize to an invalid position

@@ -20,6 +20,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/stretchr/testify/require"
 )
 
@@ -91,4 +92,36 @@ func TestDevice_Idempotent(t *testing.T) {
 	d2 := Device()
 	require.Same(t, d1, d2,
 		"Device() should return the same singleton instance")
+}
+
+type stubNvml struct {
+	nvml.Interface
+}
+
+func (stubNvml) DeviceGetCount() (int, nvml.Return) {
+	return 42, nvml.SUCCESS
+}
+
+// TestSetNvml verifies that SetNvml overrides the NVML singleton returned by Nvml().
+func TestSetNvml(t *testing.T) {
+	t.Cleanup(ResetNvml)
+
+	stub := stubNvml{}
+	SetNvml(stub)
+	require.Equal(t, stub, Nvml(), "Nvml() should return the injected stub")
+	count, ret := Nvml().DeviceGetCount()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, 42, count)
+}
+
+// TestResetNvml verifies that ResetNvml clears the NVML singleton and restores state.
+func TestResetNvml(t *testing.T) {
+	stub := stubNvml{}
+	SetNvml(stub)
+	require.NotNil(t, Nvml())
+
+	ResetNvml()
+	require.Nil(t, nvmllib, "nvmllib should be nil after ResetNvml")
+	require.Empty(t, nvmlLibPath, "nvmlLibPath should be empty after ResetNvml")
+	require.Nil(t, globalDevice, "globalDevice should be nil after ResetNvml")
 }
