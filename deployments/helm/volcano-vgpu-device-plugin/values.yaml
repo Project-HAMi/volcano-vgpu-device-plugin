@@ -4,14 +4,14 @@ namespace: kube-system
 
 image:
   repository: docker.io/projecthami/volcano-vgpu-device-plugin
-  tag: v1.12.0
+  tag: v1.13.0
   pullPolicy: IfNotPresent
 
 monitor:
   enabled: true
   image:
     repository: docker.io/projecthami/volcano-vgpu-device-plugin
-    tag: v1.12.0
+    tag: v1.13.0
     pullPolicy: IfNotPresent
 
 # Device configuration (volcano-vgpu-device-config)
