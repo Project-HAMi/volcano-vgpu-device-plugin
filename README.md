@@ -13,6 +13,7 @@ A node uses one mode, and a cluster can mix both. Plugin settings are described 
 
 | volcano-vgpu | Volcano |
 |---|---|
+| v1.13.0 | v1.15.0 and above |
 | v1.12.0 and below | v1.15.0 and below |
 | master | master |
 
