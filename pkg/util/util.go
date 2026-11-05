@@ -74,14 +74,6 @@ func GetPendingPod(node string, gpuAmount int) (*v1.Pod, error) {
 	return oldestPod, nil
 }
 
-//func printPodList(pods []v1.Pod, kubeletRequestAmount int) {
-//	for _, pod := range pods {
-//		_, length := DecodePodDevices(pod.Annotations[AssignedIDsToAllocateAnnotations])
-//		klog.V(4).Infof("pod %s, node %s, kubelet request %d, pod annotation gpu amount %d, annotations: %s", pod.Name,
-//			pod.Spec.NodeName, kubeletRequestAmount, length, pod.Annotations[AssignedIDsToAllocateAnnotations])
-//	}
-//}
-
 // getOldestPod picks the pod kubelet is allocating for. Kubelet does not send
 // pod identity, so pods that tie on every ordering key and ask for different
 // devices cannot be told apart; that is an error, not a guess.
@@ -205,7 +197,6 @@ func EncodeContainerDevices(cd ContainerDevices) string {
 	for _, val := range cd {
 		tmp += val.UUID + "," + val.Type + "," + strconv.Itoa(int(val.Usedmem)) + "," + strconv.Itoa(int(val.Usedcores)) + ":"
 	}
-	//klog.V(4).Infoln("Encoded container Devices=", tmp)
 	return tmp
 }
 
@@ -254,7 +245,6 @@ func DecodeContainerDevices(str string) (c ContainerDevices, count int) {
 			klog.V(4).Infoln("val=", val)
 		}
 	}
-	//klog.V(4).Infoln("contdev=", contdev)
 	return contdev, deviceCount
 }
 
