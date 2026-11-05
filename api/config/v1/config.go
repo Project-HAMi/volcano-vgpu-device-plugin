@@ -80,8 +80,8 @@ func NewConfig(c *cli.Context, flags []cli.Flag) (*Config, error) {
 	return config, nil
 }
 
-// DisableResourceNamingInConfig temporarily disable the resource renaming feature of the plugin.
-// This may be reenabled in a future release.
+// DisableResourceNamingInConfig temporarily disables the resource renaming feature of the plugin.
+// This may be re-enabled in a future release.
 func DisableResourceNamingInConfig(config *Config) {
 	// Disable resource renaming through config.Resource
 	if len(config.Resources.GPUs) > 0 || len(config.Resources.MIGs) > 0 {

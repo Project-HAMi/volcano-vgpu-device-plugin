@@ -126,7 +126,7 @@ func (d *Device) GetInfo() (*Info, error) {
 	if record == 0 && int(pos+2+HostDriverVersionLength+HostDriverBranchLength) <= len(d.vGPUCapability) {
 		foundDriverVersionRecord = true
 		// found vGPU host driver version record type
-		// initialized at record data byte, i.e pos + 1(record id byte) + 1(record lengh byte)
+		// initialized at record data byte, i.e pos + 1(record id byte) + 1(record length byte)
 		i := pos + 2
 		// 10 bytes of driver version
 		for ; i < pos+2+HostDriverVersionLength; i++ {

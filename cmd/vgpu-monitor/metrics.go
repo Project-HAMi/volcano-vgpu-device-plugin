@@ -101,7 +101,7 @@ var (
 	)
 	ctrDeviceMemorydesc = prometheus.NewDesc(
 		"Device_memory_desc_of_container",
-		"Container device meory description",
+		"Container device memory description",
 		[]string{"podnamespace", "podname", "ctrname", "vdeviceid", "deviceuuid", "context", "module", "data", "offset"}, nil,
 	)
 	ctrDeviceUtilizationdesc = prometheus.NewDesc(
@@ -124,7 +124,6 @@ func (cc ClusterManagerCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- ctrvGPUdesc
 	ch <- ctrvGPUlimitdesc
 	ch <- hostGPUUtilizationdesc
-	//prometheus.DescribeByCollect(cc, ch)
 }
 
 // Collect first triggers the ReallyExpensiveAssessmentOfTheSystemState. Then it
@@ -191,31 +190,18 @@ func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
 			continue
 		}
 		for _, c := range containers {
-			//for sridx := range srPodList {
-			//	if srPodList[sridx].sr == nil {
-			//		continue
-			//	}
 			if c.Info == nil {
 				continue
 			}
-			//podUID := strings.Split(srPodList[sridx].idstr, "_")[0]
-			//ctrName := strings.Split(srPodList[sridx].idstr, "_")[1]
 			podUID := c.PodUID
 			ctrName := c.ContainerName
 			if strings.Compare(string(pod.UID), podUID) != 0 {
 				continue
 			}
-			fmt.Println("Pod matched!", pod.Name, pod.Namespace, pod.Labels)
 			for _, ctr := range pod.Spec.Containers {
 				if strings.Compare(ctr.Name, ctrName) != 0 {
 					continue
 				}
-				fmt.Println("container matched", ctr.Name)
-				//err := setHostPid(pod, pod.Status.ContainerStatuses[ctridx], &srPodList[sridx])
-				//if err != nil {
-				//	fmt.Println("setHostPid filed", err.Error())
-				//}
-				//fmt.Println("sr.list=", srPodList[sridx].sr)
 				podlabels := make(map[string]string)
 				for idx, val := range pod.Labels {
 					idxfix := strings.ReplaceAll(idx, "-", "_")
@@ -237,18 +223,17 @@ func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
 					smUtil := c.Info.DeviceSmUtil(i)
 					lastKernelTime := c.Info.LastKernelTime()
 
-					//fmt.Println("uuid=", uuid, "length=", len(uuid))
 					ch <- prometheus.MustNewConstMetric(
 						ctrvGPUdesc,
 						prometheus.GaugeValue,
 						float64(memoryTotal),
-						pod.Namespace, pod.Name, ctrName, fmt.Sprint(i), uuid, /*,string(sr.sr.uuids[i].uuid[:])*/
+						pod.Namespace, pod.Name, ctrName, fmt.Sprint(i), uuid,
 					)
 					ch <- prometheus.MustNewConstMetric(
 						ctrvGPUlimitdesc,
 						prometheus.GaugeValue,
 						float64(memoryLimit),
-						pod.Namespace, pod.Name, ctrName, fmt.Sprint(i), uuid, /*,string(sr.sr.uuids[i].uuid[:])*/
+						pod.Namespace, pod.Name, ctrName, fmt.Sprint(i), uuid,
 					)
 					ch <- prometheus.MustNewConstMetric(
 						ctrDeviceMemorydesc,
@@ -302,7 +287,6 @@ func initMetrics(containerLister *nvidia.ContainerLister) {
 	// be a good idea to try it out with a pedantic registry.
 	klog.Info("Initializing metrics for vGPUmonitor")
 	reg := prometheus.NewRegistry()
-	//reg := prometheus.NewPedanticRegistry()
 
 	// Construct cluster managers. In real code, we would assign them to
 	// variables to then do something with them.

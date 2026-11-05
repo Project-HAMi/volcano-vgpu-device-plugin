@@ -183,7 +183,7 @@ func newMigStrategySingleLabeler(manager resource.Manager, config *spec.Config) 
 	deviceInfo := mig.NewDeviceInfo(manager)
 	migEnabledDevices, err := deviceInfo.GetDevicesWithMigEnabled()
 	if err != nil {
-		return nil, fmt.Errorf("unabled to retrieve list of MIG-enabled devices: %v", err)
+		return nil, fmt.Errorf("unable to retrieve list of MIG-enabled devices: %v", err)
 	}
 	// No devices have migEnabled=true. This is equivalent to the `none` MIG strategy
 	if len(migEnabledDevices) == 0 {
@@ -201,7 +201,7 @@ func newMigStrategySingleLabeler(manager resource.Manager, config *spec.Config) 
 
 	migDisabledDevices, err := deviceInfo.GetDevicesWithMigDisabled()
 	if err != nil {
-		return nil, fmt.Errorf("unabled to retrieve list of non-MIG-enabled devices: %v", err)
+		return nil, fmt.Errorf("unable to retrieve list of non-MIG-enabled devices: %v", err)
 	}
 	// If we have a mix of mig-enabled and mig-disabled device we return the set of mig-strategy-invalid labels
 	if len(migDisabledDevices) != 0 {

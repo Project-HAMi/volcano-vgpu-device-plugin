@@ -369,18 +369,6 @@ func (plugin *nvidiaDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.D
 // GetPreferredAllocation returns the preferred allocation from the set of devices specified in the request
 func (plugin *nvidiaDevicePlugin) GetPreferredAllocation(ctx context.Context, r *pluginapi.PreferredAllocationRequest) (*pluginapi.PreferredAllocationResponse, error) {
 	response := &pluginapi.PreferredAllocationResponse{}
-	/*for _, req := range r.ContainerRequests {
-		devices, err := plugin.rm.GetPreferredAllocation(req.AvailableDeviceIDs, req.MustIncludeDeviceIDs, int(req.AllocationSize))
-		if err != nil {
-			return nil, fmt.Errorf("error getting list of preferred allocation devices: %v", err)
-		}
-
-		resp := &pluginapi.ContainerPreferredAllocationResponse{
-			DeviceIDs: devices,
-		}
-
-		response.ContainerResponses = append(response.ContainerResponses, resp)
-	}*/
 	return response, nil
 }
 
@@ -440,7 +428,6 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 
 			currentCtr, devreq, err := util.GetNextDeviceRequest(util.NvidiaGPUDevice, *current)
 			klog.V(4).InfoS("Selected Pod deviceAllocateFromAnnotation=", "request", devreq)
-			//klog.V(4).InfoS("reqs device ids=", "deviceIDs", reqs.ContainerRequests[idx].DevicesIDs)
 			if err != nil {
 				klog.Errorln("get device from annotation failed", err.Error())
 				util.PodAllocationFailed(nodeName, current)
@@ -693,9 +680,6 @@ func (plugin *nvidiaDevicePlugin) uniqueDeviceIDsFromAnnotatedDeviceIDs(ids []st
 }
 
 func (plugin *nvidiaDevicePlugin) apiDevices(devs []*pluginapi.Device) []*pluginapi.Device {
-	/*if strings.Compare(plugin.migStrategy, "mixed") == 0 {
-		return devs
-	}*/
 	var res []*pluginapi.Device
 
 	if plugin.rm.Resource() == spec.ResourceName(util.ResourceMem) {

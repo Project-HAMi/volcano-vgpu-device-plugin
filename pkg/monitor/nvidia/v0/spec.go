@@ -151,10 +151,6 @@ func CastSpec(data []byte) Spec {
 	}
 }
 
-//	func (s *SharedRegionT) UsedMemory(idx int) (uint64, error) {
-//		return 0, nil
-//	}
-
 func (s Spec) GetPriority() int {
 	return int(s.sr.priority)
 }
