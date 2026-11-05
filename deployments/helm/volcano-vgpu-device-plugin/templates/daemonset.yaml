@@ -47,7 +47,7 @@ spec:
       {{- end }}
       containers:
       - name: volcano-device-plugin
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (hasPrefix "v" .Chart.AppVersion | ternary .Chart.AppVersion (printf "v%s" .Chart.AppVersion)) }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         lifecycle:
           postStart:
@@ -126,7 +126,7 @@ spec:
         {{- end }}
       {{- if and .Values.monitor.enabled (not .Values.nvmlMock.enabled) }}
       - name: monitor
-        image: "{{ .Values.monitor.image.repository }}:{{ .Values.monitor.image.tag }}"
+        image: "{{ .Values.monitor.image.repository }}:{{ .Values.monitor.image.tag | default (hasPrefix "v" .Chart.AppVersion | ternary .Chart.AppVersion (printf "v%s" .Chart.AppVersion)) }}"
         command:
         - /bin/bash
         - -c
@@ -166,7 +166,7 @@ spec:
           mountPath: /usr/local/vgpu
       {{- end }}
       volumes:
-      {{- if .Values.nodeConfig.enabled }}
+      {{- if and .Values.nodeConfig.enabled .Values.nodeConfig.configs }}
       - name: deviceconfig
         configMap:
           name: volcano-vgpu-node-config

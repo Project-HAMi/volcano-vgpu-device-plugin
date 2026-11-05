@@ -19,5 +19,5 @@ spec:
         command: ["sleep","infinity"]
         resources:
          limits:
-            volcano.sh/vgpu-number: 1 # requesting 2 vGPUs
+            volcano.sh/vgpu-number: 1 # requesting 1 vGPU
             volcano.sh/vgpu-memory: 16384
