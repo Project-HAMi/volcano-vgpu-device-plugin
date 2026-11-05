@@ -30,6 +30,7 @@ import (
 	"sync"
 	"time"
 
+	"sigs.k8s.io/yaml"
 	cdiapi "tags.cncf.io/container-device-interface/pkg/cdi"
 
 	spec "volcano.sh/k8s-device-plugin/api/config/v1"
@@ -45,7 +46,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
-	"gopkg.in/yaml.v2"
 
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
