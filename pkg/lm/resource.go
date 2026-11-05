@@ -177,7 +177,10 @@ func (rl resourceLabeler) baseLabeler(count int, parts ...string) Labeler {
 	return labels
 }
 
-// Deprecated
+// productLabel generates the legacy <resourceName>.product label (e.g., "nvidia.com/gpu.product").
+// Although standard labeling flows construct product labels via baseLabeler alongside count,
+// replicas, and sharing-strategy, productLabel is retained as a fallback helper for error-state
+// labeling (such as newInvalidMigStrategyLabeler emitting "<model>-MIG-INVALID" with zero counts).
 func (rl resourceLabeler) productLabel(parts ...string) Labels {
 	name := rl.getProductName(parts...)
 	if name == "" {
@@ -214,8 +217,8 @@ func (rl resourceLabeler) getReplicas() int {
 	return 1
 }
 
-// sharingDisabled checks whether the resourceLabeler has sharing disabled
-// TODO: The nil check here is because we call NewGPUResourceLabeler with a nil config when sharing is disabled.
+// sharingDisabled checks whether the resourceLabeler has sharing disabled.
+// A nil config indicates sharing is disabled.
 func (rl resourceLabeler) sharingDisabled() bool {
 	return rl.sharing == nil
 }
@@ -281,7 +284,7 @@ func newArchitectureLabels(rl resourceLabeler, device resource.Device) (Labels, 
 	return labels, nil
 }
 
-// TODO: This should a function in go-nvlib
+// getArchFamily returns the architecture family name for CUDA compute capability.
 func getArchFamily(computeMajor, computeMinor int) string {
 	switch computeMajor {
 	case 1:

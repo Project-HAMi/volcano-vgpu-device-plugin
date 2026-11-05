@@ -42,7 +42,6 @@ func (o *options) getMPSOptions(resourceManager rm.ResourceManager) (mpsOptions,
 		return mpsOptions{}, nil
 	}
 
-	// TODO: It might make sense to pull this logic into a resource manager.
 	for _, device := range resourceManager.Devices() {
 		if device.IsMigDevice() {
 			return mpsOptions{}, errors.New("sharing using MPS is not supported for MIG devices")
@@ -75,7 +74,6 @@ func (m *mpsOptions) updateReponse(response *pluginapi.ContainerAllocateResponse
 	if m == nil || !m.enabled {
 		return
 	}
-	// TODO: We should check that the deviceIDs are shared using MPS.
 	response.Envs["CUDA_MPS_PIPE_DIRECTORY"] = m.daemon.PipeDir()
 
 	response.Mounts = append(response.Mounts,

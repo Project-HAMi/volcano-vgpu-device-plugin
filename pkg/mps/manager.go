@@ -83,7 +83,6 @@ func (m *manager) Daemons() ([]*Daemon, error) {
 			continue
 		}
 		// Check if the resources are shared.
-		// TODO: We should add a more explicit check for MPS specifically
 		if !rm.AnnotatedIDs(resourceManager.Devices().GetIDs()).AnyHasAnnotations() {
 			klog.InfoS("Resource is not shared", "resource", "resource", resourceManager.Resource())
 			continue

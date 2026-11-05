@@ -18,16 +18,29 @@ package lm
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
+	nfdclientsetfake "sigs.k8s.io/node-feature-discovery/api/generated/clientset/versioned/fake"
+	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/api/nfd/v1alpha1"
+
+	spec "volcano.sh/k8s-device-plugin/api/config/v1"
+	"volcano.sh/k8s-device-plugin/pkg/flags"
 )
 
+// TestGetOwnerRefs verifies resolution of DaemonSet and Pod owner references.
 func TestGetOwnerRefs(t *testing.T) {
 	testCases := []struct {
 		description      string
@@ -146,4 +159,162 @@ func TestGetOwnerRefs(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNewOutputer verifies NewOutputer creation with file and NodeFeature modes.
+func TestNewOutputer(t *testing.T) {
+	t.Run("file output mode when UseNodeFeatureAPI is false", func(t *testing.T) {
+		useNFD := false
+		outputFile := "/tmp/test-output"
+		cfg := &spec.Config{
+			Flags: spec.Flags{
+				CommandLineFlags: spec.CommandLineFlags{
+					UseNodeFeatureAPI: &useNFD,
+					GFD: &spec.GFDCommandLineFlags{
+						OutputFile: &outputFile,
+					},
+				},
+			},
+		}
+
+		out, err := NewOutputer(context.Background(), cfg, flags.NodeConfig{}, flags.ClientSets{})
+		require.NoError(t, err)
+		require.NotNil(t, out)
+	})
+
+	t.Run("NodeFeature mode requires node name and namespace", func(t *testing.T) {
+		useNFD := true
+		cfg := &spec.Config{
+			Flags: spec.Flags{
+				CommandLineFlags: spec.CommandLineFlags{
+					UseNodeFeatureAPI: &useNFD,
+				},
+			},
+		}
+
+		_, err := NewOutputer(context.Background(), cfg, flags.NodeConfig{}, flags.ClientSets{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "node-name")
+
+		_, err = NewOutputer(context.Background(), cfg, flags.NodeConfig{Name: "node-1"}, flags.ClientSets{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "namespace")
+	})
+
+	t.Run("NodeFeature mode with valid config", func(t *testing.T) {
+		useNFD := true
+		cfg := &spec.Config{
+			Flags: spec.Flags{
+				CommandLineFlags: spec.CommandLineFlags{
+					UseNodeFeatureAPI: &useNFD,
+				},
+			},
+		}
+
+		clientSets := flags.ClientSets{
+			Core: fake.NewClientset(),
+			NFD:  nfdclientsetfake.NewClientset(),
+		}
+
+		out, err := NewOutputer(context.Background(), cfg, flags.NodeConfig{
+			Name:      "node-1",
+			Namespace: "default",
+		}, clientSets)
+		require.NoError(t, err)
+		require.NotNil(t, out)
+	})
+}
+
+// TestNodeFeatureObject_Output verifies creating and updating NodeFeature CRs with context.
+func TestNodeFeatureObject_Output(t *testing.T) {
+	nfdClient := nfdclientsetfake.NewClientset()
+	nfrStore := make(map[string]*nfdv1alpha1.NodeFeature)
+	nfdClient.PrependReactor("get", "nodefeatures", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		getAction := action.(k8stesting.GetAction)
+		nfr, ok := nfrStore[getAction.GetName()]
+		if !ok {
+			return true, nil, apierrors.NewNotFound(schema.GroupResource{Group: "nfd.k8s-sigs.io", Resource: "nodefeatures"}, getAction.GetName())
+		}
+		return true, nfr.DeepCopy(), nil
+	})
+	nfdClient.PrependReactor("create", "nodefeatures", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		createAction := action.(k8stesting.CreateAction)
+		nfr := createAction.GetObject().(*nfdv1alpha1.NodeFeature).DeepCopy()
+		nfrStore[nfr.Name] = nfr
+		return true, nfr, nil
+	})
+	nfdClient.PrependReactor("update", "nodefeatures", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		updateAction := action.(k8stesting.UpdateAction)
+		nfr := updateAction.GetObject().(*nfdv1alpha1.NodeFeature).DeepCopy()
+		nfrStore[nfr.Name] = nfr
+		return true, nfr, nil
+	})
+
+	obj := &nodeFeatureObject{
+		nodeConfig: flags.NodeConfig{
+			Name:      "test-node",
+			Namespace: "default",
+		},
+		nfdClientset: nfdClient,
+	}
+
+	labels := Labels{
+		"nvidia.com/gpu.count":   "1",
+		"nvidia.com/gpu.product": "A100",
+	}
+
+	// 1. Initial creation
+	err := obj.Output(context.Background(), labels)
+	require.NoError(t, err)
+
+	nfr, err := nfdClient.NfdV1alpha1().NodeFeatures("default").Get(context.Background(), "nvidia-features-for-test-node", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, labels, Labels(nfr.Spec.Labels))
+
+	// 2. Idempotent call with no changes
+	err = obj.Output(context.Background(), labels)
+	require.NoError(t, err)
+
+	// 3. Update with new labels
+	updatedLabels := Labels{
+		"nvidia.com/gpu.count":   "2",
+		"nvidia.com/gpu.product": "A100",
+	}
+	err = obj.Output(context.Background(), updatedLabels)
+	require.NoError(t, err)
+
+	nfrUpdated, err := nfdClient.NfdV1alpha1().NodeFeatures("default").Get(context.Background(), "nvidia-features-for-test-node", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, updatedLabels, Labels(nfrUpdated.Spec.Labels))
+
+	// 4. Cancelled context is respected
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = obj.Output(canceledCtx, updatedLabels)
+	require.Error(t, err)
+}
+
+// TestToFile_Output verifies atomic file writing and context cancellation.
+func TestToFile_Output(t *testing.T) {
+	dir := t.TempDir()
+	outPath := filepath.Join(dir, "labels.txt")
+	out := ToFile(outPath)
+
+	labels := Labels{
+		"nvidia.com/gpu.count": "1",
+	}
+
+	// Successful write
+	err := out.Output(context.Background(), labels)
+	require.NoError(t, err)
+
+	content, err := os.ReadFile(outPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "nvidia.com/gpu.count=1")
+
+	// Cancelled context fails early
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = out.Output(canceledCtx, labels)
+	require.Error(t, err)
 }

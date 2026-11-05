@@ -435,3 +435,13 @@ func TestMigResourceLabeler(t *testing.T) {
 		})
 	}
 }
+
+// TestProductLabel_Fallback verifies that productLabel generates the fallback <resourceName>.product label.
+func TestProductLabel_Fallback(t *testing.T) {
+	rl := resourceLabeler{resourceName: "nvidia.com/gpu"}
+	labels := rl.productLabel("A100", "MIG", "INVALID")
+	require.Equal(t, Labels{"nvidia.com/gpu.product": "A100-MIG-INVALID"}, labels)
+
+	emptyLabels := rl.productLabel()
+	require.Empty(t, emptyLabels)
+}
