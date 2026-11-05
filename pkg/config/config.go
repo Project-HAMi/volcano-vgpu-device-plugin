@@ -24,25 +24,25 @@ import (
 )
 
 type NvidiaConfig struct {
-	ResourceCountName            string                 `yaml:"resourceCountName"`
-	ResourceMemoryName           string                 `yaml:"resourceMemoryName"`
-	ResourceCoreName             string                 `yaml:"resourceCoreName"`
-	ResourceMemoryPercentageName string                 `yaml:"resourceMemoryPercentageName"`
-	ResourcePriority             string                 `yaml:"resourcePriorityName"`
-	OverwriteEnv                 bool                   `yaml:"overwriteEnv"`
-	DefaultMemory                int32                  `yaml:"defaultMemory"`
-	DefaultCores                 int32                  `yaml:"defaultCores"`
-	DefaultGPUNum                int32                  `yaml:"defaultGPUNum"`
-	DeviceSplitCount             uint                   `yaml:"deviceSplitCount"`
-	DeviceMemoryScaling          float64                `yaml:"deviceMemoryScaling"`
-	DeviceCoreScaling            float64                `yaml:"deviceCoreScaling"`
-	DisableCoreLimit             bool                   `yaml:"disableCoreLimit"`
-	MigGeometriesList            []AllowedMigGeometries `yaml:"knownMigGeometries"`
-	GPUMemoryFactor              uint                   `yaml:"gpuMemoryFactor"`
+	ResourceCountName            string                 `json:"resourceCountName" yaml:"resourceCountName"`
+	ResourceMemoryName           string                 `json:"resourceMemoryName" yaml:"resourceMemoryName"`
+	ResourceCoreName             string                 `json:"resourceCoreName" yaml:"resourceCoreName"`
+	ResourceMemoryPercentageName string                 `json:"resourceMemoryPercentageName" yaml:"resourceMemoryPercentageName"`
+	ResourcePriority             string                 `json:"resourcePriorityName" yaml:"resourcePriorityName"`
+	OverwriteEnv                 bool                   `json:"overwriteEnv" yaml:"overwriteEnv"`
+	DefaultMemory                int32                  `json:"defaultMemory" yaml:"defaultMemory"`
+	DefaultCores                 int32                  `json:"defaultCores" yaml:"defaultCores"`
+	DefaultGPUNum                int32                  `json:"defaultGPUNum" yaml:"defaultGPUNum"`
+	DeviceSplitCount             uint                   `json:"deviceSplitCount" yaml:"deviceSplitCount"`
+	DeviceMemoryScaling          float64                `json:"deviceMemoryScaling" yaml:"deviceMemoryScaling"`
+	DeviceCoreScaling            float64                `json:"deviceCoreScaling" yaml:"deviceCoreScaling"`
+	DisableCoreLimit             bool                   `json:"disableCoreLimit" yaml:"disableCoreLimit"`
+	MigGeometriesList            []AllowedMigGeometries `json:"knownMigGeometries" yaml:"knownMigGeometries"`
+	GPUMemoryFactor              uint                   `json:"gpuMemoryFactor" yaml:"gpuMemoryFactor"`
 	// PassDeviceSpecs enables explicit device mounting via kubelet Device Plugin API
 	// When true, device files are passed to kubelet via DeviceSpec, allowing containers
 	// to access GPU devices without requiring nvidia-container-runtime
-	PassDeviceSpecs bool `yaml:"passDeviceSpecs"`
+	PassDeviceSpecs bool `json:"passDeviceSpecs" yaml:"passDeviceSpecs"`
 }
 
 var (
@@ -98,9 +98,9 @@ var (
 )
 
 type MigTemplate struct {
-	Name   string `yaml:"name"`
-	Memory int32  `yaml:"memory"`
-	Count  int32  `yaml:"count"`
+	Name   string `json:"name" yaml:"name"`
+	Memory int32  `json:"memory" yaml:"memory"`
+	Count  int32  `json:"count" yaml:"count"`
 }
 
 type MigTemplateUsage struct {
@@ -110,8 +110,8 @@ type MigTemplateUsage struct {
 }
 
 type Geometry struct {
-	Group     string        `yaml:"group"`
-	Instances []MigTemplate `yaml:"geometries"`
+	Group     string        `json:"group" yaml:"group"`
+	Instances []MigTemplate `json:"geometries" yaml:"geometries"`
 }
 
 type MIGS []MigTemplateUsage
@@ -122,12 +122,12 @@ type MigInUse struct {
 }
 
 type AllowedMigGeometries struct {
-	Models     []string   `yaml:"models"`
-	Geometries []Geometry `yaml:"allowedGeometries"`
+	Models     []string   `json:"models" yaml:"models"`
+	Geometries []Geometry `json:"allowedGeometries" yaml:"allowedGeometries"`
 }
 
 type Config struct {
-	NvidiaConfig NvidiaConfig `yaml:"nvidia"`
+	NvidiaConfig NvidiaConfig `json:"nvidia" yaml:"nvidia"`
 }
 
 type MigPartedSpec struct {
