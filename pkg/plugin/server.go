@@ -800,6 +800,8 @@ func (plugin *nvidiaDevicePlugin) updateResponseForDeviceMounts(response *plugin
 	}
 }
 
+// apiDeviceSpecs returns the DeviceSpec slice for requested devices and IMEX channels.
+// It maps container device paths to their corresponding host paths under devRoot or channel.HostPath.
 func (plugin *nvidiaDevicePlugin) apiDeviceSpecs(devRoot string, ids []string) []*pluginapi.DeviceSpec {
 	optional := map[string]bool{
 		"/dev/nvidiactl":        true,
@@ -826,16 +828,14 @@ func (plugin *nvidiaDevicePlugin) apiDeviceSpecs(devRoot string, ids []string) [
 	}
 
 	for _, channel := range plugin.imexChannels {
+		hostPath := channel.HostPath
+		if hostPath == "" {
+			hostPath = filepath.Join(devRoot, channel.Path)
+		}
 		spec := &pluginapi.DeviceSpec{
 			ContainerPath: channel.Path,
-			// TODO: The HostPath property for a channel is not the correct value to use here.
-			// The `devRoot` there represents the devRoot in the current container when discovering devices
-			// and is set to "{{ .*config.Flags.Plugin.ContainerDriverRoot }}/dev".
-			// The devRoot in this context is the {{ .config.Flags.NvidiaDevRoot }} and defines the
-			// root for device nodes on the host. This is usually / or /run/nvidia/driver when the
-			// driver container is used.
-			HostPath:    filepath.Join(devRoot, channel.Path),
-			Permissions: "rw",
+			HostPath:      hostPath,
+			Permissions:   "rw",
 		}
 		specs = append(specs, spec)
 	}

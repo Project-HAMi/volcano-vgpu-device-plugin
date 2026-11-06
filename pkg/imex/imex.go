@@ -27,6 +27,8 @@ import (
 	spec "volcano.sh/k8s-device-plugin/api/config/v1"
 )
 
+var osStat = os.Stat
+
 // Channels represents a set of IMEX channels.
 type Channels []*Channel
 
@@ -38,8 +40,12 @@ type Channel struct {
 }
 
 // GetChannels returns the set of channels for the given config.
+// devRoot represents the device root in the current container for device discovery,
+// while config.Flags.NvidiaDevRoot defines the host root for device node mounting.
 // If the selection of the default IMEX channel is disabled no channels are returned.
 func GetChannels(config *spec.Config, devRoot string) (Channels, error) {
+	hostDevRoot := getHostDevRoot(config)
+
 	var channels Channels
 	for _, channelID := range config.Imex.ChannelIDs {
 		id := fmt.Sprintf("%d", channelID)
@@ -48,9 +54,23 @@ func GetChannels(config *spec.Config, devRoot string) (Channels, error) {
 		channel := Channel{
 			ID:       id,
 			Path:     path,
-			HostPath: filepath.Join(devRoot, path),
+			HostPath: filepath.Join(hostDevRoot, path),
 		}
-		if exists, err := channel.exists(); !exists {
+		discoveryPath := filepath.Join(devRoot, path)
+
+		// Check whether the channel exists at candidate locations (host path, discovery path, default container path).
+		exists, err := channelExists(channel.HostPath, discoveryPath, path)
+		// If discovered via a container-side candidate but hostDevRoot is explicitly configured,
+		// verify that the corresponding host path exists so that non-CDI PassDeviceSpecs does not
+		// return an absent host path to kubelet.
+		if exists && channel.HostPath != "" && channel.HostPath != discoveryPath && channel.HostPath != path {
+			if hostExists, hostErr := channelExists(channel.HostPath); !hostExists {
+				exists = false
+				err = errors.Join(err, hostErr, fmt.Errorf("host path %v does not exist", channel.HostPath))
+			}
+		}
+
+		if !exists {
 			if config.Imex.Required {
 				return nil, errors.Join(err, fmt.Errorf("requested IMEX channel %v does not exist", channelName))
 			}
@@ -63,23 +83,38 @@ func GetChannels(config *spec.Config, devRoot string) (Channels, error) {
 	return channels, nil
 }
 
-// exists checks whether the IMEX channel exists.
-// We check both the Path and HostPath since the location of the device node
-// associated with the channel in the container is dependent on how it is
-// injected.
-// For example, if the host driver root is mounted at /driver-root the channel
-// device node would be available at /driver-root/dev even if it was not
-// injected into the container through any other mechanism.
-// For the case of management containers using CDI to inject device nodes, these
-// device nodes would exist at /dev in the container instead.
+// getHostDevRoot resolves the host device root from configuration flags.
+// It prefers NvidiaDevRoot, falling back to NvidiaDriverRoot.
+func getHostDevRoot(config *spec.Config) string {
+	if config == nil {
+		return ""
+	}
+	if config.Flags.NvidiaDevRoot != nil && *config.Flags.NvidiaDevRoot != "" {
+		return *config.Flags.NvidiaDevRoot
+	}
+	if config.Flags.NvidiaDriverRoot != nil && *config.Flags.NvidiaDriverRoot != "" {
+		return *config.Flags.NvidiaDriverRoot
+	}
+	return ""
+}
+
+// exists checks whether the IMEX channel exists on the host or in the container.
 func (c Channel) exists() (bool, error) {
 	paths := []string{c.HostPath}
 	if c.HostPath != c.Path {
 		paths = append(paths, c.Path)
 	}
+	return channelExists(paths...)
+}
+
+// channelExists checks whether any of the candidate paths exists and represents a character device.
+func channelExists(paths ...string) (bool, error) {
 	var errs error
 	for _, path := range paths {
-		info, err := os.Stat(path)
+		if path == "" {
+			continue
+		}
+		info, err := osStat(path)
 		if os.IsNotExist(err) {
 			continue
 		}

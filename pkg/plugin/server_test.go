@@ -348,3 +348,76 @@ func TestCheckDeviceEntries(t *testing.T) {
 func ptr[T any](x T) *T {
 	return &x
 }
+
+func TestApiDeviceSpecs(t *testing.T) {
+	testCases := []struct {
+		description   string
+		devRoot       string
+		devicePaths   []string
+		imexChannels  imex.Channels
+		expectedSpecs []*pluginapi.DeviceSpec
+	}{
+		{
+			description: "device paths with devRoot",
+			devRoot:     "/run/nvidia/driver",
+			devicePaths: []string{"/dev/nvidia0"},
+			expectedSpecs: []*pluginapi.DeviceSpec{
+				{
+					ContainerPath: "/dev/nvidia0",
+					HostPath:      "/run/nvidia/driver/dev/nvidia0",
+					Permissions:   "rw",
+				},
+			},
+		},
+		{
+			description: "imex channel with precalculated HostPath preserves host path",
+			devRoot:     "/dev-root",
+			imexChannels: imex.Channels{
+				{
+					ID:       "0",
+					Path:     "/dev/nvidia-caps-imex-channels/channel0",
+					HostPath: "/run/nvidia/driver/dev/nvidia-caps-imex-channels/channel0",
+				},
+			},
+			expectedSpecs: []*pluginapi.DeviceSpec{
+				{
+					ContainerPath: "/dev/nvidia-caps-imex-channels/channel0",
+					HostPath:      "/run/nvidia/driver/dev/nvidia-caps-imex-channels/channel0",
+					Permissions:   "rw",
+				},
+			},
+		},
+		{
+			description: "imex channel with empty HostPath falls back to devRoot",
+			devRoot:     "/fallback-root",
+			imexChannels: imex.Channels{
+				{
+					ID:   "1",
+					Path: "/dev/nvidia-caps-imex-channels/channel1",
+				},
+			},
+			expectedSpecs: []*pluginapi.DeviceSpec{
+				{
+					ContainerPath: "/dev/nvidia-caps-imex-channels/channel1",
+					HostPath:      "/fallback-root/dev/nvidia-caps-imex-channels/channel1",
+					Permissions:   "rw",
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			plugin := &nvidiaDevicePlugin{
+				rm: &rm.ResourceManagerMock{
+					GetDevicePathsFunc: func(ids []string) []string {
+						return tc.devicePaths
+					},
+				},
+				imexChannels: tc.imexChannels,
+			}
+			specs := plugin.apiDeviceSpecs(tc.devRoot, []string{"gpu0"})
+			require.Equal(t, tc.expectedSpecs, specs)
+		})
+	}
+}
