@@ -241,18 +241,13 @@ func (h disabledXIDs) IsDisabled(xid uint64) bool {
 // having been disabled either explicitly or implicitly.
 func getDisabledHealthCheckXids() disabledXIDs {
 	disabled := newHealthCheckXIDs(
-		// TODO: We should not read the envvar here directly, but instead
-		// "upgrade" this to a top-level config option.
 		strings.Split(strings.ToLower(os.Getenv(envDisableHealthChecks)), ",")...,
 	)
 	enabled := newHealthCheckXIDs(
-		// TODO: We should not read the envvar here directly, but instead
-		// "upgrade" this to a top-level config option.
 		strings.Split(strings.ToLower(os.Getenv(envEnableHealthChecks)), ",")...,
 	)
 
 	// Add the list of hardcoded disabled (ignored) XIDs:
-	// FIXME: formalize the full list and document it.
 	// http://docs.nvidia.com/deploy/xid-errors/index.html#topic_4
 	// Application errors: the GPU should still be healthy
 	ignoredXids := []uint64{
@@ -284,7 +279,6 @@ func newHealthCheckXIDs(xids ...string) disabledXIDs {
 	for _, xid := range xids {
 		trimmed := strings.TrimSpace(xid)
 		if trimmed == "all" || trimmed == "xids" {
-			// TODO: We should have a different type for "all" and "all-except"
 			return disabledXIDs{allXIDs: true}
 		}
 		if trimmed == "" {

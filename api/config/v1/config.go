@@ -54,8 +54,6 @@ func NewConfig(c *cli.Context, flags []cli.Flag) (*Config, error) {
 	}
 
 	config.Flags.UpdateFromCLIFlags(c, flags)
-	// TODO: This is currently not at the flags level?
-	// Does this mean that we should move UpdateFromCLIFlags to function off Config?
 	if c.IsSet("imex-channel-ids") {
 		config.Imex.ChannelIDs = c.IntSlice("imex-channel-ids")
 	}

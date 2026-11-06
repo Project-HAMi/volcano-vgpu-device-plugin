@@ -192,7 +192,6 @@ func (cdi *cdiHandler) CreateSpecFile() error {
 			return fmt.Errorf("failed to get CDI spec: %v", err)
 		}
 
-		// TODO: Once the NewDriverTransformer is merged in container-toolkit we can instantiate it directly.
 		transformer := cdi.getRootTransformer()
 		if err := transformer.Transform(spec.Raw()); err != nil {
 			return fmt.Errorf("failed to transform driver root in CDI spec: %v", err)
@@ -205,8 +204,7 @@ func (cdi *cdiHandler) CreateSpecFile() error {
 
 		err = spec.Save(filepath.Join(cdiRoot, specName+".json"))
 		if err != nil {
-			// TODO: This is a brittle check since it relies on exact string matches.
-			// We should pull this functionality into the CDI tooling instead.
+			// Ignore empty CDI specs where no device edits were generated.
 			if strings.Contains(err.Error(), "invalid device, empty device edits") {
 				klog.ErrorS(err, "Ignoring empty CDI specs", "vendor", cdi.vendor, "class", class)
 				emptySpecs = append(emptySpecs, class)

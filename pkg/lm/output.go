@@ -40,11 +40,11 @@ import (
 
 // Outputer defines a mechanism to output labels.
 type Outputer interface {
-	Output(Labels) error
+	Output(context.Context, Labels) error
 }
 
-// TODO: Replace this with functional options.
-func NewOutputer(config *spec.Config, nodeConfig flags.NodeConfig, clientSets flags.ClientSets) (Outputer, error) {
+// NewOutputer creates a new Outputer for the specified configuration.
+func NewOutputer(ctx context.Context, config *spec.Config, nodeConfig flags.NodeConfig, clientSets flags.ClientSets) (Outputer, error) {
 	if config.Flags.UseNodeFeatureAPI == nil || !*config.Flags.UseNodeFeatureAPI {
 		return ToFile(*config.Flags.GFD.OutputFile), nil
 	}
@@ -56,7 +56,10 @@ func NewOutputer(config *spec.Config, nodeConfig flags.NodeConfig, clientSets fl
 		return nil, fmt.Errorf("required flag namespace not set")
 	}
 
-	ownerRefs, err := getOwnerReferences(context.TODO(), clientSets.Core, nodeConfig.Namespace, nodeConfig.PodName)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ownerRefs, err := getOwnerReferences(ctx, clientSets.Core, nodeConfig.Namespace, nodeConfig.PodName)
 	if err != nil {
 		// Log the error but continue without owner references.
 		klog.Warningf("Failed to resolve owner references: %v", err)
@@ -70,6 +73,7 @@ func NewOutputer(config *spec.Config, nodeConfig flags.NodeConfig, clientSets fl
 	return &o, nil
 }
 
+// ToFile creates an Outputer that writes labels to the specified file path.
 func ToFile(path string) Outputer {
 	if path == "" {
 		return &toWriter{os.Stdout}
@@ -87,12 +91,19 @@ type toWriter struct {
 	io.Writer
 }
 
-func (path *toFile) Output(labels Labels) error {
+// Output writes labels atomically to the file path using renameio.
+func (path *toFile) Output(ctx context.Context, labels Labels) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	klog.Infof("Writing labels to output file %v", *path)
 
 	buffer := new(bytes.Buffer)
 	output := &toWriter{buffer}
-	if err := output.Output(labels); err != nil {
+	if err := output.Output(ctx, labels); err != nil {
 		return fmt.Errorf("error writing labels to buffer: %v", err)
 	}
 	// write file atomically
@@ -102,7 +113,14 @@ func (path *toFile) Output(labels Labels) error {
 	return nil
 }
 
-func (output *toWriter) Output(labels Labels) error {
+// Output writes formatted key=value labels to the destination writer.
+func (output *toWriter) Output(ctx context.Context, labels Labels) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	for k, v := range labels {
 		_, err := fmt.Fprintf(output, "%s=%s\n", k, v)
 		if err != nil {
@@ -121,7 +139,13 @@ type nodeFeatureObject struct {
 }
 
 // Output creates/updates the node-specific NodeFeature custom resource.
-func (n *nodeFeatureObject) Output(labels Labels) error {
+func (n *nodeFeatureObject) Output(ctx context.Context, labels Labels) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	nodename := n.nodeConfig.Name
 	if nodename == "" {
 		return fmt.Errorf("required flag %q not set", "node-name")
@@ -129,7 +153,7 @@ func (n *nodeFeatureObject) Output(labels Labels) error {
 	namespace := n.nodeConfig.Namespace
 	nodeFeatureName := strings.Join([]string{nodeFeatureVendorPrefix, nodename}, "-")
 
-	nfr, err := n.nfdClientset.NfdV1alpha1().NodeFeatures(namespace).Get(context.TODO(), nodeFeatureName, metav1.GetOptions{})
+	nfr, err := n.nfdClientset.NfdV1alpha1().NodeFeatures(namespace).Get(ctx, nodeFeatureName, metav1.GetOptions{})
 	if err != nil && !errors.IsNotFound(err) {
 		return fmt.Errorf("failed to get NodeFeature object: %w", err)
 	}
@@ -144,7 +168,7 @@ func (n *nodeFeatureObject) Output(labels Labels) error {
 			},
 			Spec: nfdv1alpha1.NodeFeatureSpec{Features: *nfdv1alpha1.NewFeatures(), Labels: labels},
 		}
-		nfrCreated, err := n.nfdClientset.NfdV1alpha1().NodeFeatures(namespace).Create(context.TODO(), nfr, metav1.CreateOptions{})
+		nfrCreated, err := n.nfdClientset.NfdV1alpha1().NodeFeatures(namespace).Create(ctx, nfr, metav1.CreateOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to create NodeFeature object %q: %w", nfr.Name, err)
 		}
@@ -163,7 +187,7 @@ func (n *nodeFeatureObject) Output(labels Labels) error {
 	}
 
 	klog.Infof("Updating NodeFeature object %s", nodeFeatureName)
-	nfrUpdated, err = n.nfdClientset.NfdV1alpha1().NodeFeatures(namespace).Update(context.TODO(), nfrUpdated, metav1.UpdateOptions{})
+	nfrUpdated, err = n.nfdClientset.NfdV1alpha1().NodeFeatures(namespace).Update(ctx, nfrUpdated, metav1.UpdateOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to update NodeFeature object %q: %w", nfr.Name, err)
 	}
@@ -174,6 +198,9 @@ func (n *nodeFeatureObject) Output(labels Labels) error {
 // getOwnerReferences returns owner references for the DaemonSet and Pod that owns this process.
 // This ensures NodeFeature CRs are garbage collected when the DaemonSet is deleted.
 func getOwnerReferences(ctx context.Context, client kubernetes.Interface, namespace, podName string) ([]metav1.OwnerReference, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if podName == "" {
 		klog.Info("Pod name not provided, skipping owner reference resolution")
 		return nil, nil
