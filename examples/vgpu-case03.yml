@@ -6,18 +6,18 @@ spec:
   schedulerName: volcano
   containers:
     - name: ubuntu-container
-      image: ubuntu:18.04
+      image: ubuntu:24.04
       command: ["bash", "-c", "sleep 86400"]
       resources:
         limits:
           volcano.sh/vgpu-number: 2 # requesting 2 vGPUs
           volcano.sh/vgpu-memory: 2000
-          #volcano.sh/vgpu-memory-percentage: 50 #Each vGPU containers 50% device memory of that GPU. Can not be used with nvidia.com/gpumem
+          #volcano.sh/vgpu-memory-percentage: 50 #Each vGPU contains 50% device memory of that GPU. Cannot be used with volcano.sh/vgpu-memory
     - name: ubuntu-container0
-      image: ubuntu:18.04
+      image: ubuntu:24.04
       command: ["bash", "-c", "sleep 86400"]
     - name: ubuntu-container1
-      image: ubuntu:18.04
+      image: ubuntu:24.04
       command: ["bash", "-c", "sleep 86400"]
       resources:
         limits:

@@ -1,4 +1,4 @@
-{{- if .Values.nodeConfig.enabled }}
+{{- if and .Values.nodeConfig.enabled .Values.nodeConfig.configs }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -20,8 +20,8 @@ data:
                 "devicesplitcount": {{ $config.devicesplitcount }},
                 "migstrategy": {{ $config.migstrategy | quote }},
                 "filterdevices": {
-                  "uuid": {{ $config.filterdevices.uuid | toJson }},
-                  "index": {{ $config.filterdevices.index | toJson }}
+                  "uuid": {{ if and $config.filterdevices $config.filterdevices.uuid }}{{ $config.filterdevices.uuid | toJson }}{{ else }}[]{{ end }},
+                  "index": {{ if and $config.filterdevices $config.filterdevices.index }}{{ $config.filterdevices.index | toJson }}{{ else }}[]{{ end }}
                 }
             }
           {{- end }}
