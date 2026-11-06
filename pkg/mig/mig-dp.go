@@ -35,7 +35,7 @@ func GetMigCapabilityDevicePaths() (map[string]string, error) {
 	}
 	defer func() { _ = minorsFile.Close() }()
 
-	// Define a function to process each each line of nvcapsMigMinorsPath
+	// Define a function to process each line of nvcapsMigMinorsPath
 	processLine := func(line string) (string, int, error) {
 		var gpu, gi, ci, migMinor int
 

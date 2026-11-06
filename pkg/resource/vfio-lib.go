@@ -25,7 +25,7 @@ type vfioLib struct {
 	nvpcilib nvpci.Interface
 }
 
-// NewVfioManager returns an resource manger for devices with VFIO PCI driver
+// NewVfioManager returns a resource manager for devices with VFIO PCI driver
 func NewVfioManager() Manager {
 	nvpcilib := nvpci.New()
 	manager := vfioLib{

@@ -26,7 +26,7 @@ type cudaLib struct{}
 
 var _ Manager = (*cudaLib)(nil)
 
-// NewCudaManager returns an resource manger for CUDA devices
+// NewCudaManager returns a resource manager for CUDA devices
 func NewCudaManager() Manager {
 	return &cudaLib{}
 }

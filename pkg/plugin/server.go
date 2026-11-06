@@ -439,7 +439,6 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 
 			currentCtr, devreq, err := util.GetNextDeviceRequest(util.NvidiaGPUDevice, *current)
 			klog.V(4).InfoS("Selected Pod deviceAllocateFromAnnotation=", "request", devreq)
-			//klog.V(4).InfoS("reqs device ids=", "deviceIDs", reqs.ContainerRequests[idx].DevicesIDs)
 			if err != nil {
 				klog.Errorln("get device from annotation failed", err.Error())
 				util.PodAllocationFailed(nodeName, current)
