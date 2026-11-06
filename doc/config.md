@@ -17,15 +17,15 @@ After making changes, restart the volcano-vgpu-device-plugin and volcano-schedul
 By default the device plugin looks for the ConfigMap in the `kube-system` namespace and then in `volcano-system`. To read it from another namespace, set the `--device-config-namespace` flag (or the `DEVICE_CONFIG_NAMESPACE` environment variable) on the device plugin; that namespace is searched first. The Helm chart sets it to its `namespace` value (`--set namespace=...`), which is where the chart creates the ConfigMap. The volcano-scheduler must be pointed at the same ConfigMap through its `deviceshare.KnownGeometriesCMNamespace` plugin argument.
 
 * `nvidia.deviceMemoryScaling`: 
-  Float type, by default: 1. The ratio for NVIDIA device memory scaling, can be greater than 1 (enable virtual device memory, experimental feature). For NVIDIA GPU with *M* memory, if we set `nvidia.deviceMemoryScaling` argument to *S*, vGPUs splitted by this GPU will totally get `S * M` memory in Kubernetes with our device plugin.
+  Float type, by default: 1. The ratio for NVIDIA device memory scaling, can be greater than 1 (enable virtual device memory, experimental feature). For NVIDIA GPU with *M* memory, if we set `nvidia.deviceMemoryScaling` argument to *S*, vGPUs split by this GPU will totally get `S * M` memory in Kubernetes with our device plugin.
 * `nvidia.deviceSplitCount`: 
   Integer type, by default: equals 10. Maximum tasks assigned to a simple GPU device.
 * `nvidia.migstrategy`: 
-  String type, "none" for ignoring MIG features or "mixed" for allocating MIG device by seperate resources. Default "none"
+  String type, "none" for ignoring MIG features or "mixed" for allocating MIG device by separate resources. Default "none"
 * `nvidia.disablecorelimit`: 
-  String type, "true" for disable core limit, "false" for enable core limit, default: false
+  String type, "true" to disable core limit, "false" to enable core limit, default: false
 * `nvidia.defaultMem`: 
-  Integer type, by default: 0. The default device memory of the current task, in MB.'0' means use 100% device memory
+  Integer type, by default: 0. The default device memory of the current task, in MB. '0' means use 100% device memory.
 * `nvidia.defaultCores`: 
   Integer type, by default: equals 0. Percentage of GPU cores reserved for the current task. If assigned to 0, it may fit in any GPU with enough device memory. If assigned to 100, it will use an entire GPU card exclusively.
 * `nvidia.defaultGPUNum`: 
@@ -52,7 +52,7 @@ After making changes, restart the volcano-vgpu-device-plugin and volcano-schedul
 
 * `name`: the name of the node, the following parameters will only take effect on this node. 
 * `operatingmode`: 
-String type, `hami-core` for using hami-core for container resource limitation, `mig` for using mig for container resource limition (only available for on architect Ampere or later GPU)
+String type, `hami-core` for using hami-core for container resource limitation, `mig` for using mig for container resource limitation (only available on Ampere or later GPU architectures)
 * `devicememoryscaling`:
 Integer type, device memory oversubscription on that node
 * `devicecorescaling`: 

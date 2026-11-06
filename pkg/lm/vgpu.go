@@ -30,7 +30,7 @@ type vgpuLabeler struct {
 	lib vgpu.Interface
 }
 
-// NewVGPULabeler creates a new VGP label manager using the provided vgpu library
+// NewVGPULabeler creates a new VGPU label manager using the provided vgpu library
 // and config.
 func NewVGPULabeler(vgpu vgpu.Interface) Labeler {
 	return vgpuLabeler{lib: vgpu}

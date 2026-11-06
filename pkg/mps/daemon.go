@@ -43,8 +43,8 @@ const (
 )
 
 // Daemon represents an MPS daemon.
-// It is associated with a specific kubernets resource and is responsible for
-// starting and stopping the deamon as well as ensuring that the memory and
+// It is associated with a specific kubernetes resource and is responsible for
+// starting and stopping the daemon as well as ensuring that the memory and
 // thread limits are set for the devices that the resource makes available.
 type Daemon struct {
 	rm rm.ResourceManager
@@ -88,7 +88,7 @@ func (d *Daemon) EnvVars() envvars {
 	}
 }
 
-// Start starts the MPS deamon as a background process.
+// Start starts the MPS daemon as a background process.
 func (d *Daemon) Start() error {
 	if err := d.setComputeMode(computeModeExclusiveProcess); err != nil {
 		return fmt.Errorf("error setting compute mode %v: %w", computeModeExclusiveProcess, err)

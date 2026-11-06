@@ -40,7 +40,7 @@ const (
 	cdiRoot = "/var/run/cdi"
 )
 
-// cdiHandler creates CDI specs for devices assocatied with the device plugin
+// cdiHandler creates CDI specs for devices associated with the device plugin
 type cdiHandler struct {
 	infolib   info.Interface
 	nvmllib   nvml.Interface
