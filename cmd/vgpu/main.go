@@ -163,7 +163,7 @@ func main() {
 		&cli.StringFlag{
 			Name:    "device-discovery-strategy",
 			Value:   "auto",
-			Usage:   "the strategy to use to discover devices: 'auto', 'nvml', or 'tegra'",
+			Usage:   "the strategy to use to discover devices: 'auto', 'nvml', or 'tegra' (deprecated)",
 			EnvVars: []string{"DEVICE_DISCOVERY_STRATEGY"},
 		},
 		&cli.IntSliceFlag{
