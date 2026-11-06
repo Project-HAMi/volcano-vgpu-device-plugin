@@ -52,6 +52,11 @@ func (r Root) startedFile(resourceName spec.ResourceName) string {
 	return r.Path(string(resourceName), ".started")
 }
 
+// ReadyFile returns the .ready file name for the specified root.
+func (r Root) ReadyFile() string {
+	return r.Path(".ready")
+}
+
 // Path returns a path relative to the MPS root.
 func (r Root) Path(parts ...string) string {
 	pathparts := append([]string{string(r)}, parts...)

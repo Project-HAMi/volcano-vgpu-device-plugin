@@ -181,7 +181,7 @@ func (plugin *nvidiaDevicePlugin) Start(kubeletSocket string) error {
 		return err
 	}
 
-	if err := plugin.mps.waitForDaemon(); err != nil {
+	if err := plugin.mps.waitForDaemon(plugin.ctx); err != nil {
 		plugin.cleanup()
 		return fmt.Errorf("error waiting for MPS daemon: %w", err)
 	}
