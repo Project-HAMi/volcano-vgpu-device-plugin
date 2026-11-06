@@ -18,6 +18,7 @@ package mps
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -200,20 +201,25 @@ func (d *Daemon) startedFile() string {
 	return d.root.startedFile(d.rm.Resource())
 }
 
-// AssertHealthy checks that the MPS control daemon is healthy.
-func (d *Daemon) AssertHealthy() error {
-	_, err := d.EchoPipeToControl("get_default_active_thread_percentage")
+// AssertHealthy checks that the MPS control daemon is healthy within the given context.
+func (d *Daemon) AssertHealthy(ctx context.Context) error {
+	_, err := d.EchoPipeToControlWithContext(ctx, "get_default_active_thread_percentage")
 	return err
 }
 
 // EchoPipeToControl sends the specified command to the MPS control daemon.
 func (d *Daemon) EchoPipeToControl(command string) (string, error) {
+	return d.EchoPipeToControlWithContext(context.Background(), command)
+}
+
+// EchoPipeToControlWithContext sends the specified command to the MPS control daemon within the given context.
+func (d *Daemon) EchoPipeToControlWithContext(ctx context.Context, command string) (string, error) {
 	var out bytes.Buffer
 	reader, writer := io.Pipe()
 	defer func() { _ = writer.Close() }()
 	defer func() { _ = reader.Close() }()
 
-	mpsDaemon := exec.Command(mpsControlBin)
+	mpsDaemon := exec.CommandContext(ctx, mpsControlBin)
 	mpsDaemon.Env = append(mpsDaemon.Env, d.EnvVars().toSlice()...)
 
 	mpsDaemon.Stdin = reader
