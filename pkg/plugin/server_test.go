@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
+	"sigs.k8s.io/yaml"
 
 	v1 "volcano.sh/k8s-device-plugin/api/config/v1"
 	"volcano.sh/k8s-device-plugin/pkg/cdi"
@@ -190,6 +191,29 @@ func TestAllocate(t *testing.T) {
 			require.EqualValues(t, tc.expectedResponse, response)
 		})
 	}
+}
+
+func TestProcessMigConfigs_InitializesNilCollections(t *testing.T) {
+	migCurrent := config.MigPartedSpec{
+		MigConfigs: map[string]config.MigConfigSpecSlice{
+			"current": {{
+				Devices:    nil,
+				MigDevices: nil,
+			}},
+		},
+	}
+
+	processed, err := (&nvidiaDevicePlugin{}).processMigConfigs(migCurrent.MigConfigs, 1)
+	require.NoError(t, err)
+	migCurrent.MigConfigs["current"] = processed
+
+	data, err := yaml.Marshal(migCurrent)
+	require.NoError(t, err)
+
+	var marshaled config.MigPartedSpec
+	require.NoError(t, yaml.Unmarshal(data, &marshaled))
+	require.Equal(t, []int32{0}, marshaled.MigConfigs["current"][0].Devices)
+	require.NotNil(t, marshaled.MigConfigs["current"][0].MigDevices)
 }
 
 func TestCDIAllocateResponse(t *testing.T) {

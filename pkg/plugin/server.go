@@ -1041,9 +1041,13 @@ func deepCopyMigConfig(src config.MigConfigSpec) config.MigConfigSpec {
 	if src.Devices != nil {
 		dst.Devices = make([]int32, len(src.Devices))
 		copy(dst.Devices, src.Devices)
+	} else {
+		// Marshalling a nil value might result in null
+		dst.Devices = make([]int32, 0)
 	}
+
+	dst.MigDevices = make(map[string]int32)
 	if src.MigDevices != nil {
-		dst.MigDevices = make(map[string]int32)
 		for k, v := range src.MigDevices {
 			dst.MigDevices[k] = v
 		}
