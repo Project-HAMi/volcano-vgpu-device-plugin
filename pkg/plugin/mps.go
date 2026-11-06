@@ -19,6 +19,8 @@ package plugin
 import (
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
@@ -70,11 +72,21 @@ func (m *mpsOptions) waitForDaemon() error {
 	return nil
 }
 
-func (m *mpsOptions) updateReponse(response *pluginapi.ContainerAllocateResponse) {
-	if m == nil || !m.enabled {
+// updateReponse updates the container allocate response with MPS environment variables and mounts.
+// It sets CUDA_MPS_PIPE_DIRECTORY and scopes CUDA_VISIBLE_DEVICES to the allocated device IDs.
+func (m *mpsOptions) updateReponse(response *pluginapi.ContainerAllocateResponse, deviceIDs ...string) {
+	if m == nil || !m.enabled || m.daemon == nil {
 		return
 	}
+	if response.Envs == nil {
+		response.Envs = make(map[string]string)
+	}
 	response.Envs["CUDA_MPS_PIPE_DIRECTORY"] = m.daemon.PipeDir()
+	if len(deviceIDs) > 0 {
+		sortedIDs := append([]string(nil), deviceIDs...)
+		sort.Strings(sortedIDs)
+		response.Envs["CUDA_VISIBLE_DEVICES"] = strings.Join(sortedIDs, ",")
+	}
 
 	response.Mounts = append(response.Mounts,
 		&pluginapi.Mount{

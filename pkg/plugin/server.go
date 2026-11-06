@@ -550,7 +550,7 @@ func (plugin *nvidiaDevicePlugin) getAllocateResponse(requestIds []string) (*plu
 		}
 	}
 	if plugin.mps.enabled {
-		plugin.updateResponseForMPS(response)
+		plugin.updateResponseForMPS(response, deviceIDs...)
 	}
 
 	if plugin.config.Flags.GDRCopyEnabled != nil && *plugin.config.Flags.GDRCopyEnabled {
@@ -583,10 +583,10 @@ func (plugin *nvidiaDevicePlugin) getAllocateResponse(requestIds []string) (*plu
 }
 
 // updateResponseForMPS ensures that the ContainerAllocate response contains the information required to use MPS.
-// This includes per-resource pipe and log directories as well as a global daemon-specific shm
-// and assumes that an MPS control daemon has already been started.
-func (plugin *nvidiaDevicePlugin) updateResponseForMPS(response *pluginapi.ContainerAllocateResponse) {
-	plugin.mps.updateReponse(response)
+// This includes per-resource pipe and log directories, device visibility scoped to the allocated devices,
+// and a global daemon-specific shm directory.
+func (plugin *nvidiaDevicePlugin) updateResponseForMPS(response *pluginapi.ContainerAllocateResponse, deviceIDs ...string) {
+	plugin.mps.updateReponse(response, deviceIDs...)
 }
 
 // updateResponseForCDI updates the specified response for the given device IDs.
