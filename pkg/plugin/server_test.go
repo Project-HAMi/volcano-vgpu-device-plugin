@@ -29,6 +29,7 @@ import (
 	"volcano.sh/k8s-device-plugin/pkg/cdi"
 	"volcano.sh/k8s-device-plugin/pkg/config"
 	"volcano.sh/k8s-device-plugin/pkg/imex"
+	"volcano.sh/k8s-device-plugin/pkg/mps"
 	"volcano.sh/k8s-device-plugin/pkg/rm"
 )
 
@@ -371,4 +372,85 @@ func TestCheckDeviceEntries(t *testing.T) {
 
 func ptr[T any](x T) *T {
 	return &x
+}
+
+func TestAllocate_MPSWithIndexStrategy(t *testing.T) {
+	mockRM := &rm.ResourceManagerMock{
+		ResourceFunc: func() v1.ResourceName {
+			return v1.ResourceName("nvidia.com/gpu")
+		},
+		DevicesFunc: func() rm.Devices {
+			return rm.Devices{
+				"GPU-UUID-0": &rm.Device{
+					Device: pluginapi.Device{ID: "GPU-UUID-0"},
+					Index:  "0",
+				},
+				"GPU-UUID-1": &rm.Device{
+					Device: pluginapi.Device{ID: "GPU-UUID-1"},
+					Index:  "1",
+				},
+			}
+		},
+		ValidateRequestFunc: func(annotatedIDs rm.AnnotatedIDs) error {
+			return nil
+		},
+	}
+	plugin := nvidiaDevicePlugin{
+		rm: mockRM,
+		config: &v1.Config{
+			Flags: v1.Flags{
+				CommandLineFlags: v1.CommandLineFlags{
+					Plugin: &v1.PluginCommandLineFlags{
+						DeviceIDStrategy: ptr(v1.DeviceIDStrategyIndex),
+					},
+				},
+			},
+		},
+		mps: mpsOptions{
+			enabled:      true,
+			resourceName: v1.ResourceName("nvidia.com/gpu"),
+			daemon:       mps.NewDaemon(mockRM, mps.Root("/test/mps")),
+			hostRoot:     mps.Root("/host/mps"),
+		},
+		deviceListStrategies: v1.DeviceListStrategies{"envvar": true},
+	}
+
+	resp, err := plugin.getAllocateResponse([]string{"GPU-UUID-1", "GPU-UUID-0"})
+	require.NoError(t, err)
+	// NVIDIA_VISIBLE_DEVICES uses the index strategy (order can vary due to map iteration in GetIndices)
+	require.Contains(t, []string{"1,0", "0,1"}, resp.Envs["NVIDIA_VISIBLE_DEVICES"])
+	// CUDA_VISIBLE_DEVICES for MPS uses device UUIDs preserving allocation order ("GPU-UUID-1,GPU-UUID-0")
+	require.Equal(t, "GPU-UUID-1,GPU-UUID-0", resp.Envs["CUDA_VISIBLE_DEVICES"])
+}
+
+func TestDeviceUUIDsFromAnnotatedDeviceIDs(t *testing.T) {
+	testCases := []struct {
+		description string
+		ids         []string
+		expected    []string
+	}{
+		{
+			description: "preserves allocation order of unique device IDs",
+			ids:         []string{"GPU-1", "GPU-0"},
+			expected:    []string{"GPU-1", "GPU-0"},
+		},
+		{
+			description: "deduplicates replicated device IDs to unique UUIDs in order",
+			ids:         []string{"GPU-2::0", "GPU-2::1", "GPU-1"},
+			expected:    []string{"GPU-2", "GPU-1"},
+		},
+		{
+			description: "preserves IDs without replica suffixes alongside replica IDs in order",
+			ids:         []string{"GPU-1", "unannotated-gpu-id", "GPU-0"},
+			expected:    []string{"GPU-1", "unannotated-gpu-id", "GPU-0"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			plugin := nvidiaDevicePlugin{}
+			uuids := plugin.deviceUUIDsFromAnnotatedDeviceIDs(tc.ids)
+			require.Equal(t, tc.expected, uuids)
+		})
+	}
 }

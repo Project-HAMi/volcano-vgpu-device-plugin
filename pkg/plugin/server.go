@@ -537,7 +537,8 @@ func (plugin *nvidiaDevicePlugin) getAllocateResponse(requestIds []string) (*plu
 		}
 	}
 	if plugin.mps.enabled {
-		plugin.updateResponseForMPS(response)
+		deviceUUIDs := plugin.deviceUUIDsFromAnnotatedDeviceIDs(requestIds)
+		plugin.updateResponseForMPS(response, deviceUUIDs...)
 	}
 
 	if plugin.config.Flags.GDRCopyEnabled != nil && *plugin.config.Flags.GDRCopyEnabled {
@@ -570,10 +571,14 @@ func (plugin *nvidiaDevicePlugin) getAllocateResponse(requestIds []string) (*plu
 }
 
 // updateResponseForMPS ensures that the ContainerAllocate response contains the information required to use MPS.
-// This includes per-resource pipe and log directories as well as a global daemon-specific shm
-// and assumes that an MPS control daemon has already been started.
-func (plugin *nvidiaDevicePlugin) updateResponseForMPS(response *pluginapi.ContainerAllocateResponse) {
-	plugin.mps.updateReponse(response)
+// This includes per-resource pipe and log directories, device visibility scoped to the allocated device UUIDs,
+// and a global daemon-specific shm directory.
+func (plugin *nvidiaDevicePlugin) updateResponseForMPS(response *pluginapi.ContainerAllocateResponse, deviceUUIDs ...string) {
+	plugin.mps.updateReponse(response, deviceUUIDs...)
+}
+
+func (plugin *nvidiaDevicePlugin) deviceUUIDsFromAnnotatedDeviceIDs(ids []string) []string {
+	return uniqueDeviceIDs(rm.AnnotatedIDs(ids).GetIDs())
 }
 
 // updateResponseForCDI updates the specified response for the given device IDs.
@@ -664,6 +669,19 @@ func (plugin *nvidiaDevicePlugin) dial(unixSocketPath string, timeout time.Durat
 	return c, nil
 }
 
+func uniqueDeviceIDs(ids []string) []string {
+	var uniqueIDs []string
+	seen := make(map[string]bool)
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		uniqueIDs = append(uniqueIDs, id)
+	}
+	return uniqueIDs
+}
+
 func (plugin *nvidiaDevicePlugin) uniqueDeviceIDsFromAnnotatedDeviceIDs(ids []string) []string {
 	var deviceIDs []string
 	if *plugin.config.Flags.Plugin.DeviceIDStrategy == spec.DeviceIDStrategyUUID {
@@ -672,16 +690,7 @@ func (plugin *nvidiaDevicePlugin) uniqueDeviceIDsFromAnnotatedDeviceIDs(ids []st
 	if *plugin.config.Flags.Plugin.DeviceIDStrategy == spec.DeviceIDStrategyIndex {
 		deviceIDs = plugin.rm.Devices().Subset(ids).GetIndices()
 	}
-	var uniqueIDs []string
-	seen := make(map[string]bool)
-	for _, id := range deviceIDs {
-		if seen[id] {
-			continue
-		}
-		seen[id] = true
-		uniqueIDs = append(uniqueIDs, id)
-	}
-	return uniqueIDs
+	return uniqueDeviceIDs(deviceIDs)
 }
 
 func (plugin *nvidiaDevicePlugin) apiDevices(devs []*pluginapi.Device) []*pluginapi.Device {
