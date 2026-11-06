@@ -65,6 +65,23 @@ func SetNvmlLibraryPath(path string) {
 	nvmlLibPath = path
 }
 
+// SetNvml overrides the NVML interface singleton (primarily for testing).
+func SetNvml(nv nvml.Interface) {
+	nvmllib = nv
+	nvmlOnce = sync.Once{}
+	nvmlOnce.Do(func() {})
+}
+
+// ResetNvml resets the NVML singleton (primarily for testing).
+func ResetNvml() {
+	nvmllib = nil
+	nvmlOnce = sync.Once{}
+	nvmlLibPath = ""
+	globalDeviceOnce = sync.Once{}
+	globalDevice = nil
+}
+
+// Nvml returns the NVML interface singleton.
 func Nvml() nvml.Interface {
 	nvmlOnce.Do(func() {
 		if nvmlLibPath != "" {
@@ -76,6 +93,7 @@ func Nvml() nvml.Interface {
 	return nvmllib
 }
 
+// Device returns the device interface singleton.
 func Device() device.Interface {
 	globalDeviceOnce.Do(func() {
 		globalDevice = device.New(Nvml())

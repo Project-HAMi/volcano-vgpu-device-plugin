@@ -16,8 +16,14 @@ limitations under the License.
 
 package client
 
-import "testing"
+import (
+	"testing"
 
+	"github.com/stretchr/testify/require"
+	"k8s.io/client-go/kubernetes/fake"
+)
+
+// TestNewClientWithoutConfigReturnsError verifies that NewClient returns an error when no configuration is available.
 func TestNewClientWithoutConfigReturnsError(t *testing.T) {
 	t.Setenv("KUBECONFIG", t.TempDir()+"/missing")
 	t.Setenv("KUBERNETES_SERVICE_HOST", "")
@@ -26,4 +32,23 @@ func TestNewClientWithoutConfigReturnsError(t *testing.T) {
 	if err == nil || c != nil {
 		t.Fatalf("expected error and nil client, got client=%v err=%v", c, err)
 	}
+}
+
+// TestSetClient verifies that SetClient overrides the singleton returned by GetClient.
+func TestSetClient(t *testing.T) {
+	t.Cleanup(ResetClient)
+
+	fakeClient := fake.NewClientset()
+	SetClient(fakeClient)
+	require.Same(t, fakeClient, GetClient(), "GetClient should return the injected client")
+}
+
+// TestResetClient verifies that ResetClient clears the singleton client.
+func TestResetClient(t *testing.T) {
+	fakeClient := fake.NewClientset()
+	SetClient(fakeClient)
+	require.NotNil(t, GetClient())
+
+	ResetClient()
+	require.Nil(t, kubeClient)
 }
