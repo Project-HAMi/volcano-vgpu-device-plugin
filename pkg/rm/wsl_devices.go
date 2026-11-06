@@ -25,7 +25,7 @@ func (d wslDevice) GetUUID() (string, error) {
 	return nvmlDevice(d).GetUUID()
 }
 
-// GetPaths returns the paths for a tegra device.
+// GetPaths returns the paths for a WSL device.
 func (d wslDevice) GetPaths() ([]string, error) {
 	return []string{"/dev/dxg"}, nil
 }

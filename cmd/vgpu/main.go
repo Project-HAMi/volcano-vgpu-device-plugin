@@ -163,7 +163,7 @@ func main() {
 		&cli.StringFlag{
 			Name:    "device-discovery-strategy",
 			Value:   "auto",
-			Usage:   "the strategy to use to discover devices: 'auto', 'nvml', or 'tegra'",
+			Usage:   "the strategy to use to discover devices: 'auto', 'nvml', or 'tegra' (deprecated)",
 			EnvVars: []string{"DEVICE_DISCOVERY_STRATEGY"},
 		},
 		&cli.IntSliceFlag{
@@ -254,6 +254,7 @@ func validateFlags(infolib nvinfo.Interface, config *spec.Config) error {
 	case "auto":
 	case "nvml":
 	case "tegra":
+		klog.Warning("The 'tegra' device discovery strategy is deprecated; vGPU memory virtualization is unsupported on Tegra SoC architectures")
 	default:
 		return fmt.Errorf("invalid --device-discovery-strategy option %v", *config.Flags.DeviceDiscoveryStrategy)
 	}

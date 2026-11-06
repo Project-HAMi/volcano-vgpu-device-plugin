@@ -18,12 +18,22 @@ package rm
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	spec "volcano.sh/k8s-device-plugin/api/config/v1"
 )
 
 const (
 	tegraDeviceName = "tegra"
+)
+
+var (
+	// tegraSerialPaths defines the sysfs and procfs locations where Tegra SoC serial numbers are exposed.
+	tegraSerialPaths = []string{
+		"/sys/devices/soc0/serial_number",
+		"/proc/device-tree/serial-number",
+	}
 )
 
 // buildTegraDeviceMap creates a DeviceMap for the tegra devices in the sytesm.
@@ -52,8 +62,18 @@ type tegraDevice struct{}
 var _ deviceInfo = (*tegraDevice)(nil)
 
 // GetUUID returns the UUID of the tegra device.
-// TODO: This is currently hardcoded to `tegra`
+// On Tegra/Jetson platforms, it queries the hardware SoC serial number from sysfs or procfs.
+// If the serial number cannot be read, it falls back to the legacy "tegra" identifier.
 func (d *tegraDevice) GetUUID() (string, error) {
+	for _, p := range tegraSerialPaths {
+		data, err := os.ReadFile(p)
+		if err == nil {
+			serial := strings.TrimSpace(strings.TrimRight(string(data), "\x00"))
+			if serial != "" {
+				return "tegra-" + serial, nil
+			}
+		}
+	}
 	return tegraDeviceName, nil
 }
 
