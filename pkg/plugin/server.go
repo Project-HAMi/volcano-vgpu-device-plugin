@@ -30,6 +30,7 @@ import (
 	"sync"
 	"time"
 
+	"sigs.k8s.io/yaml"
 	cdiapi "tags.cncf.io/container-device-interface/pkg/cdi"
 
 	spec "volcano.sh/k8s-device-plugin/api/config/v1"
@@ -45,7 +46,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
-	"gopkg.in/yaml.v2"
 
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
@@ -1042,9 +1042,13 @@ func deepCopyMigConfig(src config.MigConfigSpec) config.MigConfigSpec {
 	if src.Devices != nil {
 		dst.Devices = make([]int32, len(src.Devices))
 		copy(dst.Devices, src.Devices)
+	} else {
+		// Marshalling a nil value might result in null
+		dst.Devices = make([]int32, 0)
 	}
+
+	dst.MigDevices = make(map[string]int32)
 	if src.MigDevices != nil {
-		dst.MigDevices = make(map[string]int32)
 		for k, v := range src.MigDevices {
 			dst.MigDevices[k] = v
 		}
