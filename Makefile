@@ -22,11 +22,22 @@ VERSION  ?= dev
 BUILD_PLATFORMS ?= linux/amd64
 
 IMAGE      := $(REGISTRY)/volcano-vgpu-device-plugin
-DOCKERFILE := docker/Dockerfile.ubuntu20.04
+DOCKERFILE ?= docker/Dockerfile
 
-.PHONY: all ubuntu20.04 push push-short push-latest
+.PHONY: all build ubuntu20.04 push push-short push-latest
 
-all: ubuntu20.04
+all: build
+
+build:
+	docker buildx build --platform $(BUILD_PLATFORMS) --load \
+		--tag $(IMAGE):$(VERSION) \
+		--file $(DOCKERFILE) .
+
+# Backward-compatible target for legacy ubuntu20.04 tag
+ubuntu20.04:
+	docker buildx build --platform $(BUILD_PLATFORMS) --load \
+		--tag $(IMAGE):$(VERSION)-ubuntu20.04 \
+		--file $(DOCKERFILE) .
 
 push:
 	docker buildx build --platform $(BUILD_PLATFORMS) --push \
@@ -41,9 +52,4 @@ push-short:
 push-latest:
 	docker buildx build --platform $(BUILD_PLATFORMS) --push \
 		--tag $(IMAGE):latest \
-		--file $(DOCKERFILE) .
-
-ubuntu20.04:
-	docker buildx build --platform $(BUILD_PLATFORMS) --load \
-		--tag $(IMAGE):$(VERSION)-ubuntu20.04 \
 		--file $(DOCKERFILE) .
