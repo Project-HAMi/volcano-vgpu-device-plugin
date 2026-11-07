@@ -58,7 +58,7 @@ func getManager(infolib info.Interface, nvmllib nvml.Interface, devicelib device
 		klog.Info("Using NVML manager")
 		return NewNVMLManager(nvmllib, devicelib), nil
 	case "tegra":
-		klog.Info("Using CUDA manager")
+		klog.Warning("Tegra device discovery strategy is deprecated; using CUDA manager")
 		return NewCudaManager(), nil
 	case "vfio":
 		klog.Info("Using Vfio manager")
