@@ -24,6 +24,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/opencontainers/selinux/go-selinux"
 	"k8s.io/klog/v2"
@@ -80,12 +82,19 @@ func (e envvars) toSlice() []string {
 
 // EnvVars returns the environment variables required for the daemon.
 // These should be passed to clients consuming the device shared using MPS.
-// TODO: Set CUDA_VISIBLE_DEVICES to include only the devices for this resource type.
 func (d *Daemon) EnvVars() envvars {
-	return map[string]string{
+	if d == nil || d.rm == nil {
+		return nil
+	}
+	envs := map[string]string{
 		"CUDA_MPS_PIPE_DIRECTORY": d.PipeDir(),
 		"CUDA_MPS_LOG_DIRECTORY":  d.LogDir(),
 	}
+	if uuids := d.Devices().GetUUIDs(); len(uuids) > 0 {
+		sort.Strings(uuids)
+		envs["CUDA_VISIBLE_DEVICES"] = strings.Join(uuids, ",")
+	}
+	return envs
 }
 
 // Start starts the MPS daemon as a background process.
@@ -234,6 +243,7 @@ func (d *Daemon) EchoPipeToControl(command string) (string, error) {
 	return out.String(), nil
 }
 
+// setComputeMode sets the compute mode for each device managed by the MPS daemon.
 func (d *Daemon) setComputeMode(mode computeMode) error {
 	for _, uuid := range d.Devices().GetUUIDs() {
 		cmd := exec.Command(
@@ -270,6 +280,7 @@ func (m *Daemon) perDevicePinnedDeviceMemoryLimits() map[string]string {
 	return limits
 }
 
+// activeThreadPercentage calculates the default active thread percentage based on device replication.
 func (m *Daemon) activeThreadPercentage() string {
 	if len(m.Devices()) == 0 {
 		return ""
