@@ -131,9 +131,20 @@ func (d *Daemon) Start() error {
 
 	statusFile, err := os.Create(d.startedFile())
 	if err != nil {
+		_, _ = d.EchoPipeToControl("quit")
+		_ = d.setComputeMode(computeModeDefault)
 		return err
 	}
 	defer func() { _ = statusFile.Close() }()
+
+	readyFile, err := os.Create(d.ReadyFile())
+	if err != nil {
+		_ = os.Remove(d.startedFile())
+		_, _ = d.EchoPipeToControl("quit")
+		_ = d.setComputeMode(computeModeDefault)
+		return err
+	}
+	defer func() { _ = readyFile.Close() }()
 
 	d.logTailer = newTailer(filepath.Join(logDir, "control.log"))
 	klog.InfoS("Starting log tailer", "resource", d.rm.Resource())
@@ -165,8 +176,14 @@ func (d *Daemon) Stop() error {
 	}
 	klog.InfoS("Stopped MPS control daemon", "resource", d.rm.Resource())
 
-	err = d.logTailer.Stop()
-	klog.InfoS("Stopped log tailer", "resource", d.rm.Resource(), "error", err)
+	if err := os.Remove(d.ReadyFile()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		klog.Warningf("failed to remove ready file: %v", err)
+	}
+
+	if d.logTailer != nil {
+		err = d.logTailer.Stop()
+		klog.InfoS("Stopped log tailer", "resource", d.rm.Resource(), "error", err)
+	}
 
 	if err := d.setComputeMode(computeModeDefault); err != nil {
 		return fmt.Errorf("error setting compute mode %v: %w", computeModeDefault, err)
@@ -198,6 +215,22 @@ func (d *Daemon) ShmDir() string {
 
 func (d *Daemon) startedFile() string {
 	return d.root.startedFile(d.rm.Resource())
+}
+
+// StartedFile returns the per-resource .started file path for this daemon.
+func (d *Daemon) StartedFile() string {
+	if d == nil {
+		return ""
+	}
+	return d.startedFile()
+}
+
+// ReadyFile returns the per-resource .ready file path for this daemon.
+func (d *Daemon) ReadyFile() string {
+	if d == nil {
+		return ""
+	}
+	return d.root.ReadyFile(d.rm.Resource())
 }
 
 // AssertHealthy checks that the MPS control daemon is healthy.
