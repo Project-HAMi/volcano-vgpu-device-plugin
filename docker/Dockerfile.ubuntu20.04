@@ -39,7 +39,7 @@ RUN go build -ldflags="-s -w" -o volcano-vgpu-device-plugin ./cmd/vgpu
 RUN go build -ldflags="-s -w" -o volcano-vgpu-monitor ./cmd/vgpu-monitor
 RUN go install github.com/NVIDIA/mig-parted/cmd/nvidia-mig-parted@v0.15.1
 
-FROM nvidia/cuda:12.9.2-cudnn-devel-ubi8@sha256:6817b0a3c6d74e782e2407e4a8f2a174e5b17ba7c04c97a752b4ca96fed6401e AS nvidia_builder
+FROM nvidia/cuda:13.5.0-cudnn-devel-ubi8@sha256:25ec0bcb3b5bfaf567a105e07268ef685ef81e0a02c79142f4fea3e32d11a7f3 AS nvidia_builder
 RUN dnf --disablerepo=cuda install -y cmake git && dnf clean all
 COPY ./libvgpu /libvgpu
 WORKDIR /libvgpu
