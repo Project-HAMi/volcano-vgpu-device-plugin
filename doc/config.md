@@ -25,7 +25,7 @@ By default the device plugin looks for the ConfigMap in the `kube-system` namesp
 * `nvidia.disablecorelimit`: 
   String type, "true" to disable core limit, "false" to enable core limit, default: false
 * `nvidia.defaultMem`: 
-  Integer type, by default: 0. The default device memory of the current task, in MB. '0' means use 100% device memory.
+  Integer type, by default: 0. The default device memory of the current task, in `gpuMemoryFactor`-sized blocks. With the default factor of 1, one block is 1 MiB. '0' means use 100% device memory.
 * `nvidia.defaultCores`: 
   Integer type, by default: equals 0. Percentage of GPU cores reserved for the current task. If assigned to 0, it may fit in any GPU with enough device memory. If assigned to 100, it will use an entire GPU card exclusively.
 * `nvidia.defaultGPUNum`: 

@@ -12,5 +12,5 @@ spec:
     args: ["100000"]
     resources:
       limits:
-        volcano.sh/vgpu-number: 1 #request 1 GPU
-        volcano.sh/vgpu-memory: 10240 #each GPU request 10G device memory
+        volcano.sh/vgpu-number: 1 # request 1 GPU
+        volcano.sh/vgpu-memory: 10240 # 10 GiB with gpuMemoryFactor: 1

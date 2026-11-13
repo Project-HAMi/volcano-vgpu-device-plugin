@@ -30,6 +30,9 @@ deviceConfig:
     deviceSplitCount: 10
     deviceMemoryScaling: 1
     deviceCoreScaling: 1
+    # Size of one volcano.sh/vgpu-memory unit in MiB. Pod requests must use
+    # ceil(desired MiB / gpuMemoryFactor). Keep the node-wide sum of
+    # floor(each GPU's MiB / gpuMemoryFactor) at or below 60000.
     gpuMemoryFactor: 1
     knownMigGeometries:
       - models: ["A30"]

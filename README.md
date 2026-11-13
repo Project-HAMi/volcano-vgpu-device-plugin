@@ -74,7 +74,9 @@ Check that the node reports vGPUs:
 kubectl get node <node> -o jsonpath='{.status.allocatable}'
 ```
 
-`volcano.sh/vgpu-number` and `volcano.sh/vgpu-memory` should be listed. The number is the GPU count times `deviceSplitCount` (10 by default).
+`volcano.sh/vgpu-number` and `volcano.sh/vgpu-memory` should be listed. The
+number capacity is the GPU count times `deviceSplitCount` (10 by default). The
+memory capacity is expressed in the blocks described below, not always in MiB.
 
 ## Run a vGPU job
 
@@ -96,11 +98,43 @@ spec:
     resources:
       limits:
         volcano.sh/vgpu-number: 2    # two vGPUs
-        volcano.sh/vgpu-memory: 3000 # optional: MB per vGPU
+        volcano.sh/vgpu-memory: 3000 # optional: memory blocks per vGPU
         volcano.sh/vgpu-cores: 50    # optional: percent of a GPU per vGPU
 ```
 
-In `hami-core` mode `nvidia-smi` inside the container shows the `vgpu-memory` limit. In `mig` mode it shows the memory of the assigned MIG instance, which comes from the configured MIG geometry. A pod cannot request more vGPUs than the node has GPUs. Without the annotation, either mode may be used.
+### GPU memory units
+
+`volcano.sh/vgpu-memory` is an integer count of memory blocks. Each block is
+`gpuMemoryFactor` MiB, configured through
+`deviceConfig.nvidia.gpuMemoryFactor` in the Helm chart. The default factor is
+1, so the request value equals MiB only with the default configuration.
+
+```text
+memory limit per vGPU (MiB) = vgpu-memory request * gpuMemoryFactor
+vgpu-memory request = ceil(desired memory in MiB / gpuMemoryFactor)
+```
+
+For example, with `gpuMemoryFactor: 2`, a request of `1500` gives each requested
+vGPU a 3000 MiB limit. When the desired limit is not an exact multiple of the
+factor, round the request up to a whole block.
+
+The plugin registers one synthetic device for every memory block. For GPU `i`,
+the registered block count is
+`floor(GPU memory in MiB / gpuMemoryFactor)`. Keep the sum across a node at or
+below 60000; a larger `ListAndWatch` response can exceed kubelet's default gRPC
+receive limit and leave `volcano.sh/vgpu-memory` at zero. Use the smallest
+factor that keeps the largest node in the cluster below this limit.
+
+Use the same factor for every node that exposes the same memory resource name.
+Otherwise, the same Pod request represents different memory limits depending
+on the selected node. Changing the factor also changes the meaning of existing
+Pod manifests; update their `vgpu-memory` values before deploying the new
+configuration.
+
+In `hami-core` mode `nvidia-smi` inside the container shows the resulting
+memory limit. In `mig` mode it shows the memory of the assigned MIG instance,
+which comes from the configured MIG geometry. A pod cannot request more vGPUs
+than the node has GPUs. Without the annotation, either mode may be used.
 
 ## Metrics
 
