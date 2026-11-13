@@ -63,6 +63,11 @@ Or apply the plain manifest:
 kubectl apply -f deployments/static/volcano-vgpu-device-plugin.yml
 ```
 
+After updating `volcano-scheduler-configmap`, `volcano-scheduler` hot-reloads
+`volcano-scheduler.conf` once kubelet syncs the ConfigMap (typically within
+about a minute), so restarting Volcano components is not required. Wait for the
+reload before creating vGPU workloads.
+
 Useful chart options:
 
 - `--set cdi.enabled=true` passes devices through CDI instead of environment variables.
@@ -75,6 +80,19 @@ kubectl get node <node> -o jsonpath='{.status.allocatable}'
 ```
 
 `volcano.sh/vgpu-number` and `volcano.sh/vgpu-memory` should be listed. The number is the GPU count times `deviceSplitCount` (10 by default).
+
+After creating a vGPU pod, verify that Volcano added the device allocation
+annotations:
+
+```shell
+kubectl get pod <pod> -o yaml | grep -E \
+  'volcano.sh/(devices-to-allocate|vgpu-ids-new|vgpu-node)'
+```
+
+If a pod was created before the updated configuration took effect and lacks
+these annotations, kubelet may reject it with `UnexpectedAdmissionError:
+Allocate failed due to rpc error: code = Unknown desc = cannot get valid pod`;
+recreate the pod after the reload completes.
 
 ## Run a vGPU job
 
