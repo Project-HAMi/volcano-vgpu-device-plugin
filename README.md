@@ -63,6 +63,24 @@ Or apply the plain manifest:
 kubectl apply -f deployments/static/volcano-vgpu-device-plugin.yml
 ```
 
+After installing the device plugin and updating `volcano-scheduler-configmap`,
+restart the Volcano scheduler and admission controller, then wait for both
+rollouts to complete before creating vGPU workloads:
+
+```shell
+kubectl rollout restart deployment/volcano-scheduler -n volcano-system
+kubectl rollout restart deployment/volcano-admission -n volcano-system
+kubectl rollout status deployment/volcano-scheduler -n volcano-system
+kubectl rollout status deployment/volcano-admission -n volcano-system
+```
+
+Pods created before the restart must be recreated. Otherwise, the device
+plugin can reject them during allocation with an error similar to:
+
+```text
+UnexpectedAdmissionError: Allocate failed due to rpc error: code = Unknown desc = cannot get valid pod
+```
+
 Useful chart options:
 
 - `--set cdi.enabled=true` passes devices through CDI instead of environment variables.
@@ -75,6 +93,14 @@ kubectl get node <node> -o jsonpath='{.status.allocatable}'
 ```
 
 `volcano.sh/vgpu-number` and `volcano.sh/vgpu-memory` should be listed. The number is the GPU count times `deviceSplitCount` (10 by default).
+
+After creating a vGPU pod, verify that Volcano added the device allocation
+annotations:
+
+```shell
+kubectl get pod <pod> -o yaml | grep -E \
+  'volcano.sh/(devices-to-allocate|vgpu-ids-new|vgpu-node)'
+```
 
 ## Run a vGPU job
 
