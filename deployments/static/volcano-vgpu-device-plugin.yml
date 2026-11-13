@@ -33,6 +33,7 @@ data:
       deviceSplitCount: 10
       deviceMemoryScaling: 1
       deviceCoreScaling: 1
+      # One volcano.sh/vgpu-memory unit is gpuMemoryFactor MiB.
       gpuMemoryFactor: 1
       knownMigGeometries:
       - models: [ "A30" ]
