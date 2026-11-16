@@ -20,8 +20,6 @@ spec:
     type: RollingUpdate
   template:
     metadata:
-      annotations:
-        scheduler.alpha.kubernetes.io/critical-pod: ""
       labels:
         name: volcano-device-plugin
         {{- include "volcano-vgpu.selectorLabels" . | nindent 8 }}
