@@ -37,7 +37,7 @@ RUN go env -w GOARCH=${TARGETARCH}
 RUN go env -w CGO_LDFLAGS_ALLOW='-Wl,--unresolved-symbols=ignore-in-object-files'
 RUN go build -ldflags="-s -w" -o volcano-vgpu-device-plugin ./cmd/vgpu
 RUN go build -ldflags="-s -w" -o volcano-vgpu-monitor ./cmd/vgpu-monitor
-RUN go install github.com/NVIDIA/mig-parted/cmd/nvidia-mig-parted
+RUN go build -ldflags="-s -w" -o /go/bin/nvidia-mig-parted github.com/NVIDIA/mig-parted/cmd/nvidia-mig-parted
 
 FROM nvidia/cuda:13.5.0-cudnn-devel-ubi8@sha256:25ec0bcb3b5bfaf567a105e07268ef685ef81e0a02c79142f4fea3e32d11a7f3 AS nvidia_builder
 RUN dnf --disablerepo=cuda install -y cmake git && dnf clean all
