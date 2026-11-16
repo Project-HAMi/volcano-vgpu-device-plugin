@@ -108,6 +108,7 @@ func (o *options) getResourceManagers() ([]rm.ResourceManager, error) {
 
 		return rm.NewNVMLResourceManagers(o.infolib, o.nvmllib, o.devicelib, o.config)
 	case "tegra":
+		klog.Warning("Tegra device discovery strategy is deprecated; vGPU virtualization and memory accounting are not supported on Tegra SoC architectures")
 		return rm.NewTegraResourceManagers(o.config)
 	default:
 		klog.Errorf("Incompatible strategy detected %v", strategy)

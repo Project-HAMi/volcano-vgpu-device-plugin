@@ -52,7 +52,7 @@ type tegraDevice struct{}
 var _ deviceInfo = (*tegraDevice)(nil)
 
 // GetUUID returns the UUID of the tegra device.
-// TODO: This is currently hardcoded to `tegra`
+// Tegra platforms have a single integrated SoC device per node, identified as "tegra".
 func (d *tegraDevice) GetUUID() (string, error) {
 	return tegraDeviceName, nil
 }
