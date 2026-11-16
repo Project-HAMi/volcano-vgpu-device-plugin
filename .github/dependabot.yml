@@ -4,6 +4,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    allow:
+      - dependency-type: direct
+      - dependency-name: "github.com/NVIDIA/mig-parted"
+        dependency-type: all
   - package-ecosystem: github-actions
     directory: /
     schedule:
