@@ -47,10 +47,15 @@ tiers:
   - name: binpack
 ```
 
-After updating `volcano-scheduler-configmap`, `volcano-scheduler` hot-reloads
-`volcano-scheduler.conf` once kubelet syncs the ConfigMap (typically within
-about a minute), so restarting Volcano components is not required. Wait for the
-reload before creating vGPU workloads.
+After updating `volcano-scheduler-configmap`, restart `volcano-scheduler` and wait
+for the rollout to finish before creating vGPU workloads (relying on hot reload
+alone can leave `deviceshare`'s `sync.Once` vGPU registration skipped; other
+Volcano components do not need a restart):
+
+```shell
+kubectl rollout restart deployment/volcano-scheduler -n volcano-system
+kubectl rollout status deployment/volcano-scheduler -n volcano-system
+```
 
 ## Install
 
@@ -92,7 +97,8 @@ kubectl get pod <pod> -o yaml | grep -E \
 If a pod that has not yet been allocated was created before the updated
 configuration took effect and lacks these annotations, kubelet may reject it
 with `UnexpectedAdmissionError: Allocate failed due to rpc error: code =
-Unknown desc = cannot get valid pod`; recreate it after the reload completes.
+Unknown desc = cannot get valid pod`; recreate it after `volcano-scheduler`
+restarts.
 
 ## Run a vGPU job
 
