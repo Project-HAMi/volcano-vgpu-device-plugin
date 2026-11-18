@@ -15,13 +15,22 @@ For example:
  - args: ["--gpu-strategy=number"] will let device plugin using the gpu-number strategy
  - args: ["--gpu-strategy=share","--gpu-memory-factor=10"] will let device plugin use the gpu-share strategy with 10 MiB memory blocks
 
+The `--gpu-memory-factor` flag overrides only the device plugin's factor; Volcano
+scheduler reads `gpuMemoryFactor` from the device ConfigMap (`volcano-vgpu-device-config`).
+Keep both factors aligned and restart `volcano-scheduler` after changing the
+ConfigMap.
+
 `volcano.sh/vgpu-memory` counts memory blocks rather than bytes. One block is
-`gpu-memory-factor` MiB, so a request represents:
+`gpu-memory-factor` MiB. In non-MIG (`hami-core`) mode, a request represents:
 
 ```text
 memory limit per vGPU (MiB) = request * gpu-memory-factor
 request = ceil(desired memory in MiB / gpu-memory-factor)
 ```
+
+In MIG mode, the plugin does not set `CUDA_DEVICE_MEMORY_LIMIT_<i>`; the
+allocated MIG slice geometry determines the available memory and may exceed the
+requested size, so the formula above is not an exact limit in MIG mode.
 
 The device plugin registers each block as a separate synthetic device. The
 number of registered memory devices on a node is:

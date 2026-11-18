@@ -109,16 +109,20 @@ spec:
 `deviceConfig.nvidia.gpuMemoryFactor` in the Helm chart. The default factor is
 1, so the request value equals MiB only with the default configuration.
 
+In `hami-core` mode, each requested vGPU receives:
+
 ```text
 memory limit per vGPU (MiB) = vgpu-memory request * gpuMemoryFactor
 vgpu-memory request = ceil(desired memory in MiB / gpuMemoryFactor)
 ```
 
 For example, with `gpuMemoryFactor: 2`, a request of `1500` gives each requested
-vGPU a 3000 MiB limit. When the desired limit is not an exact multiple of the
-factor, round the request up to a whole block.
+vGPU a 3000 MiB limit in `hami-core` mode. When the desired limit is not an exact
+multiple of the factor, round the request up to a whole block. In `mig` mode,
+the plugin skips the calculated CUDA memory limit and the assigned MIG geometry
+determines the available memory (which may exceed the requested size).
 
-The plugin registers one synthetic device for every memory block. For GPU `i`,
+The plugin registers one synthetic device for every memory block. For each GPU,
 the registered block count is
 `floor(GPU memory in MiB / gpuMemoryFactor)`. Keep the sum across a node at or
 below 60000; a larger `ListAndWatch` response can exceed kubelet's default gRPC
