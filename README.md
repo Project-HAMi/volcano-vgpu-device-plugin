@@ -47,6 +47,17 @@ tiers:
   - name: binpack
 ```
 
+After updating `volcano-scheduler-configmap`, restart `volcano-scheduler` and wait
+for the rollout to finish before creating vGPU workloads. If `deviceshare`
+already ran with vGPU disabled, a ConfigMap hot-reload alone updates the flag
+without re-running its `sync.Once` device registration; other Volcano
+components do not need a restart:
+
+```shell
+kubectl rollout restart deployment/volcano-scheduler -n volcano-system
+kubectl rollout status deployment/volcano-scheduler -n volcano-system
+```
+
 ## Install
 
 No Helm repository is published yet, so install from a checkout:
@@ -62,11 +73,6 @@ Or apply the plain manifest:
 ```shell
 kubectl apply -f deployments/static/volcano-vgpu-device-plugin.yml
 ```
-
-After updating `volcano-scheduler-configmap`, `volcano-scheduler` hot-reloads
-`volcano-scheduler.conf` once kubelet syncs the ConfigMap (typically within
-about a minute), so restarting Volcano components is not required. Wait for the
-reload before creating vGPU workloads.
 
 Useful chart options:
 
@@ -89,10 +95,11 @@ kubectl get pod <pod> -o yaml | grep -E \
   'volcano.sh/(devices-to-allocate|vgpu-ids-new|vgpu-node)'
 ```
 
-If a pod was created before the updated configuration took effect and lacks
-these annotations, kubelet may reject it with `UnexpectedAdmissionError:
-Allocate failed due to rpc error: code = Unknown desc = cannot get valid pod`;
-recreate the pod after the reload completes.
+If a pod that has not yet been allocated was created before the updated
+configuration took effect and lacks these annotations, kubelet may reject it
+with `UnexpectedAdmissionError: Allocate failed due to rpc error: code =
+Unknown desc = cannot get valid pod`; recreate it after `volcano-scheduler`
+restarts.
 
 ## Run a vGPU job
 
