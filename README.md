@@ -50,8 +50,10 @@ tiers:
 After updating `volcano-scheduler-configmap`, restart `volcano-scheduler`, wait
 for the rollout to finish, and trigger a node annotation update before creating
 vGPU workloads (relying on hot reload alone can leave `deviceshare`'s
-`sync.Once` vGPU registration skipped; other Volcano components do not need a
-restart):
+`sync.Once` vGPU registration skipped, and `kubectl annotate` forces a node
+update event so `volcano-scheduler` re-syncs each node's
+`volcano.sh/node-vgpu-register` annotation into its cache; other Volcano
+components do not need a restart):
 
 ```shell
 kubectl rollout restart deployment/volcano-scheduler -n volcano-system
