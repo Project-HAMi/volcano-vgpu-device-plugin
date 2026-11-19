@@ -101,8 +101,8 @@ kubectl get pod <pod> -o yaml | grep -E \
 If a pod that has not yet been allocated was created before the updated
 configuration took effect and lacks these annotations, kubelet may reject it
 with `UnexpectedAdmissionError: Allocate failed due to rpc error: code =
-Unknown desc = cannot get valid pod`; recreate it after `volcano-scheduler`
-restarts.
+Unknown desc = cannot get valid pod`; recreate it after the `volcano-scheduler`
+restart and node annotation step.
 
 ## Run a vGPU job
 
