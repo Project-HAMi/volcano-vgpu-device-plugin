@@ -13,7 +13,7 @@ A node uses one mode, and a cluster can mix both. Plugin settings are described 
 
 | volcano-vgpu | Volcano |
 |---|---|
-| v1.13.0 | v1.15.0 and above |
+| v1.13.0 | v1.15.1 and above |
 | v1.12.0 and below | v1.15.0 and below |
 | master | master |
 
@@ -47,14 +47,16 @@ tiers:
   - name: binpack
 ```
 
-After updating `volcano-scheduler-configmap`, restart `volcano-scheduler` and wait
-for the rollout to finish before creating vGPU workloads (relying on hot reload
-alone can leave `deviceshare`'s `sync.Once` vGPU registration skipped; other
-Volcano components do not need a restart):
+After updating `volcano-scheduler-configmap`, restart `volcano-scheduler`, wait
+for the rollout to finish, and trigger a node annotation update before creating
+vGPU workloads (relying on hot reload alone can leave `deviceshare`'s
+`sync.Once` vGPU registration skipped; other Volcano components do not need a
+restart):
 
 ```shell
 kubectl rollout restart deployment/volcano-scheduler -n volcano-system
 kubectl rollout status deployment/volcano-scheduler -n volcano-system
+kubectl annotate nodes --all volcano.sh/vgpu-resync="$(date +%s)" --overwrite
 ```
 
 ## Install
