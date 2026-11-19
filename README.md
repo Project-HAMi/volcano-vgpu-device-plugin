@@ -133,7 +133,8 @@ Use the same factor for every node that exposes the same memory resource name.
 Otherwise, the same Pod request represents different memory limits depending
 on the selected node. Changing the factor also changes the meaning of existing
 Pod manifests; update their `vgpu-memory` values before deploying the new
-configuration.
+configuration. Recreate running vGPU Pods after the change so they are
+allocated with the new block size.
 
 In `hami-core` mode `nvidia-smi` inside the container shows the resulting
 memory limit. In `mig` mode it shows the memory of the assigned MIG instance,

@@ -44,7 +44,8 @@ at least 2; a node with eight 80 GiB cards needs at least 11.
 
 Use the same factor on nodes that expose the same resource name. Changing the
 factor changes the meaning of existing Pod requests and requires those requests
-to be converted to the new block size.
+to be converted to the new block size. Recreate running vGPU Pods after the
+change so they are allocated with the new block size.
 
 ### Configuration Option Details
 **`--gpu-memory-factor`(uint)**:
