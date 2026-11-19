@@ -6,13 +6,11 @@ The volcano device plugin has a number of options that can be configured. These 
 
 | Flag                     | Envvar                  | Default Value   |
 |--------------------------|-------------------------|-----------------|
-| `--gpu-strategy`         | `$GPU_STRATEGY`         | `"share"`       |
-| `--gpu-memory-factor`    | `$GPU_MEMORY_FACTOR`    | `1`             |
+| `--gpu-memory-factor`    | `-`                     | `1`             |
 | `--config-file`          | `$CONFIG_FILE`          | `""`            |
 
 when starting volcano-device-plugin.yml, users can specify these parameters by adding args to the container 'volcano-device-plugin'.
 For example: 
- - args: ["--gpu-strategy=number"] will let device plugin using the gpu-number strategy
  - args: ["--gpu-memory-factor=10"] will let device plugin use 10 MiB memory blocks
 
 The `--gpu-memory-factor` flag overrides only the device plugin's factor; Volcano
@@ -48,32 +46,17 @@ Use the same factor on nodes that expose the same resource name. Changing the
 factor changes the meaning of existing Pod requests and requires those requests
 to be converted to the new block size.
 
-### As a configuration file
-```
-version: v1
-flags:
-  GPUStrategy: "number"
-```
-
 ### Configuration Option Details
-**`GPU_STRATEGY`(string)**:
-  the desired strategy for exposing GPU devices
-
-  `[number | share ] (default 'share')`
-
-  The `GPU_STRATEGY` option configures the daemonset to be able to expose
-  on GPU devices in numbers or sharing mode. More information on what
-  these strategies are and how to use it in Volcano can be found in Volcano scheduler.
-
-**`GPU_MEMORY_FACTOR`(uint)**:
-  the desired memory factor for exposing GPU shared memory virtual devices
+**`--gpu-memory-factor`(uint)**:
+  the memory block size for vGPU shared memory virtual devices, in MiB
 
   `(default 1)`
 
-  The `GPU_MEMORY_FACTOR` option sets the memory block size used by the daemonset.
-  Each block is 1 MiB by default. Nodes with more aggregate GPU memory can use a
-  larger block size, such as 10 MiB or 100 MiB, to keep the registered device
-  list within kubelet's gRPC receive limit.
+  Set it with the `--gpu-memory-factor` command line flag or the Helm
+  `gpuMemoryFactor` value. There is no `GPU_MEMORY_FACTOR` environment
+  variable. Each block is 1 MiB by default. Nodes with more aggregate GPU
+  memory can use a larger block size, such as 10 MiB or 100 MiB, to keep
+  the registered device list within kubelet's gRPC receive limit.
 
 **`CONFIG_FILE`**:
   point the plugin at a configuration file instead of relying on command line
