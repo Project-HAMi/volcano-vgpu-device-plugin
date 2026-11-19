@@ -13,12 +13,12 @@ The volcano device plugin has a number of options that can be configured. These 
 when starting volcano-device-plugin.yml, users can specify these parameters by adding args to the container 'volcano-device-plugin'.
 For example: 
  - args: ["--gpu-strategy=number"] will let device plugin using the gpu-number strategy
- - args: ["--gpu-strategy=share","--gpu-memory-factor=10"] will let device plugin use the gpu-share strategy with 10 MiB memory blocks
+ - args: ["--gpu-memory-factor=10"] will let device plugin use 10 MiB memory blocks
 
 The `--gpu-memory-factor` flag overrides only the device plugin's factor; Volcano
 scheduler reads `gpuMemoryFactor` from the device ConfigMap (`volcano-vgpu-device-config`).
-Keep both factors aligned and restart `volcano-scheduler` after changing the
-ConfigMap.
+Keep both factors aligned and restart both the device plugin and
+`volcano-scheduler` after changing the ConfigMap.
 
 `volcano.sh/vgpu-memory` counts memory blocks rather than bytes. One block is
 `gpu-memory-factor` MiB. In non-MIG (`hami-core`) mode, a request represents:
