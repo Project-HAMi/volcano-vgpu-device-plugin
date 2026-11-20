@@ -22,7 +22,7 @@ If an overlay states more than the node registers, Karpenter launches a node the
 
 ## Example
 
-One overlay per GPU model. In this NodePool every instance type has a single L4, the plugin runs with `deviceSplitCount: 8` and `gpuMemoryFactor: 4`, and the node registers `vgpu-memory: 5758` (23,032 MiB ÷ 4):
+One overlay per GPU model and count. This one covers single-L4 instances; the plugin runs with `deviceSplitCount: 8` and `gpuMemoryFactor: 4`, and the node registers `vgpu-memory: 5758` (23,032 MiB ÷ 4):
 
 ```yaml
 apiVersion: karpenter.sh/v1alpha1
@@ -37,13 +37,16 @@ spec:
     - key: karpenter.k8s.aws/instance-family
       operator: In
       values: [g6]
+    - key: karpenter.k8s.aws/instance-gpu-count
+      operator: In
+      values: ["1"]
   capacity:
     volcano.sh/vgpu-number: "8"
     volcano.sh/vgpu-memory: "5758"
     volcano.sh/vgpu-cores: "100"
 ```
 
-If a NodePool mixes GPU counts, add one overlay per count and select on `karpenter.k8s.aws/instance-gpu-count`, since the capacity grows with the number of GPUs.
+The capacity grows with the number of GPUs, so each overlay matches one GPU count. For a four-GPU type such as `g6.12xlarge`, add a second overlay with `instance-gpu-count` 4 and four times the capacity. Overlays of the same weight that match the same instance type and set the same resource conflict: Karpenter reports it in the overlay status and does not apply the conflicting overlay.
 
 An overlay changes only Karpenter's simulation. The node still registers whatever the plugin reports, and Volcano places pods by that.
 
