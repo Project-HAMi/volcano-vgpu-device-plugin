@@ -78,6 +78,8 @@ kubectl get node <node> -o jsonpath='{.status.allocatable}'
 number capacity is the GPU count times `deviceSplitCount` (10 by default). The
 memory capacity is expressed in the blocks described below, not always in MiB.
 
+With Karpenter, GPU nodes start from zero only if Karpenter knows these resources in advance: see [doc/karpenter.md](doc/karpenter.md).
+
 ## Run a vGPU job
 
 Request vGPUs in `resources.limits`:
