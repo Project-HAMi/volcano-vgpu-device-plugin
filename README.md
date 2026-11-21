@@ -1,5 +1,7 @@
 # Volcano vGPU device plugin
 
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16915/badge)](https://www.bestpractices.dev/projects/16915)
+
 A Kubernetes device plugin that lets pods share NVIDIA GPUs under the [Volcano](https://volcano.sh) scheduler. It is a subproject of [HAMi](https://github.com/Project-HAMi/HAMi), based on the NVIDIA device plugin, and uses [HAMi-core](https://github.com/Project-HAMi/HAMi-core) to enforce per-container memory and core limits.
 
 A GPU is split into several vGPUs. Each pod asks for a number of vGPUs and, optionally, device memory and a share of the cores. There are two sharing modes:
@@ -185,6 +187,11 @@ The plugin pod serves per-container GPU usage and limits on port 9394:
 ```shell
 curl <plugin-pod-ip>:9394/metrics
 ```
+
+## Release notes
+
+See [CHANGELOG.md](CHANGELOG.md) for summaries of the release tags and links to
+the published GitHub release notes.
 
 ## Contributing and security
 

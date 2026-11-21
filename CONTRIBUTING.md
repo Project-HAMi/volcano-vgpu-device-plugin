@@ -61,6 +61,37 @@ A change to behavior must come with a new or updated unit test that fails
 without the change. A test that no longer matches the code is fixed or removed
 in the same pull request that changes the code, never skipped silently.
 
+## Preparing a release
+
+Before creating a `vX.Y.Z` tag:
+
+1. Update `CHANGELOG.md` in the release pull request. Add a `## vX.Y.Z` section
+   summarizing major changes, compatibility or configuration changes, upgrade
+   actions, and applicable public vulnerability identifiers. Use human-readable
+   notes rather than raw commit logs, and distinguish dependency advisories from
+   vulnerabilities in the plugin itself.
+2. When publishing the Helm chart, add a `## Helm chart X.Y.Z` section for the
+   chart version. Keep the chart version, application version and release tag
+   consistent.
+3. Check both entries before merging the release pull request:
+
+   ```shell
+   python3 hack/verify-release-notes.py --kind plugin --version vX.Y.Z
+   python3 hack/verify-release-notes.py --kind chart --version X.Y.Z
+   ```
+
+   Replace `X.Y.Z` with the actual versions. The publishing workflows run these
+   checks and stop before registry authentication or publication when an entry
+   is missing, duplicated, empty or still contains a placeholder.
+   `TODO`, `TBD` and `PLACEHOLDER` are reserved unfinished-note markers. They
+   are rejected anywhere in the entry's text, including Markdown emphasis or
+   inline-code wrappers. Fenced examples are ignored.
+4. Run the contribution checks, obtain maintainer review and merge the release
+   pull request before tagging the reviewed commit. Publish the GitHub release
+   with the corresponding changelog summary and source comparison link. Review
+   the chart release notes produced by chart-releaser and use the chart's
+   changelog summary for its human-readable release description.
+
 ## Hardware validation
 
 Changes affecting device allocation or in-container isolation must be validated
