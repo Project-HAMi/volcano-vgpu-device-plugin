@@ -17,9 +17,13 @@
 package plugin
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"os"
+	"time"
 
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 
@@ -28,11 +32,22 @@ import (
 	"volcano.sh/k8s-device-plugin/pkg/rm"
 )
 
+const (
+	defaultMPSReadyTimeout  = 30 * time.Second
+	defaultMPSRetryInterval = 500 * time.Millisecond
+)
+
+var defaultMPSReadyFilePath = mps.ContainerRoot.ReadyFile()
+
 type mpsOptions struct {
-	enabled      bool
-	resourceName spec.ResourceName
-	daemon       *mps.Daemon
-	hostRoot     mps.Root
+	enabled       bool
+	resourceName  spec.ResourceName
+	daemon        *mps.Daemon
+	hostRoot      mps.Root
+	readyTimeout  time.Duration
+	retryInterval time.Duration
+	readyFilePath string
+	healthChecker func(context.Context) error
 }
 
 // getMPSOptions returns the MPS options specified for the resource manager.
@@ -49,24 +64,82 @@ func (o *options) getMPSOptions(resourceManager rm.ResourceManager) (mpsOptions,
 	}
 
 	m := mpsOptions{
-		enabled:      true,
-		resourceName: resourceManager.Resource(),
-		daemon:       mps.NewDaemon(resourceManager, mps.ContainerRoot),
-		hostRoot:     mps.Root(*o.config.Flags.MpsRoot),
+		enabled:       true,
+		resourceName:  resourceManager.Resource(),
+		daemon:        mps.NewDaemon(resourceManager, mps.ContainerRoot),
+		hostRoot:      mps.Root(*o.config.Flags.MpsRoot),
+		readyTimeout:  defaultMPSReadyTimeout,
+		retryInterval: defaultMPSRetryInterval,
+		readyFilePath: defaultMPSReadyFilePath,
 	}
 	return m, nil
 }
 
-func (m *mpsOptions) waitForDaemon() error {
+func (m *mpsOptions) isReadyFilePresent() (bool, error) {
+	_, err := os.Stat(m.readyFilePath)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, err
+}
+
+func (m *mpsOptions) assertHealthy(ctx context.Context) error {
+	if m.healthChecker != nil {
+		return m.healthChecker(ctx)
+	}
+	return m.daemon.AssertHealthy(ctx)
+}
+
+func (m *mpsOptions) waitForDaemon(parentCtx context.Context) error {
 	if m == nil || !m.enabled {
 		return nil
 	}
-	// TODO: Check the .ready file here.
-	// TODO: Have some retry strategy here.
-	if err := m.daemon.AssertHealthy(); err != nil {
-		return fmt.Errorf("error checking MPS daemon health: %w", err)
+	if err := parentCtx.Err(); err != nil {
+		return fmt.Errorf("context canceled before waiting for MPS daemon: %w", err)
 	}
-	klog.InfoS("MPS daemon is healthy", "resource", m.resourceName)
+
+	var lastErr error
+	pollErr := wait.PollUntilContextTimeout(parentCtx, m.retryInterval, m.readyTimeout, true, func(ctx context.Context) (bool, error) {
+		ready, err := m.isReadyFilePresent()
+		if err != nil {
+			if ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+				lastErr = err
+			}
+			klog.V(4).InfoS("Unable to stat MPS ready file; retrying", "resource", m.resourceName, "path", m.readyFilePath, "err", err)
+			return false, nil
+		}
+		if !ready {
+			if ctx.Err() == nil {
+				lastErr = errors.New("ready file not present")
+			}
+			klog.V(4).InfoS("Waiting for MPS daemon ready file", "resource", m.resourceName)
+			return false, nil
+		}
+
+		if err := m.assertHealthy(ctx); err != nil {
+			if ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+				lastErr = err
+			}
+			klog.V(4).InfoS("MPS daemon ready file detected, but health check failed; retrying", "resource", m.resourceName, "err", err)
+			return false, nil
+		}
+
+		klog.InfoS("MPS daemon is healthy and ready", "resource", m.resourceName)
+		return true, nil
+	})
+
+	if pollErr != nil {
+		if errors.Is(pollErr, context.Canceled) || errors.Is(parentCtx.Err(), context.Canceled) {
+			return fmt.Errorf("context canceled while waiting for MPS daemon: %w", parentCtx.Err())
+		}
+		if lastErr != nil {
+			return fmt.Errorf("timeout waiting for MPS daemon health: %w (last error: %v)", pollErr, lastErr)
+		}
+		return fmt.Errorf("timeout waiting for MPS daemon health: %w", pollErr)
+	}
 	return nil
 }
 
