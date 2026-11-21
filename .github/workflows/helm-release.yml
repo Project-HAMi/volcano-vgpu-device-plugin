@@ -9,12 +9,51 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: helm-release
+  queue: max
+  cancel-in-progress: false
+
 jobs:
+  validate-chart:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Helm
+        uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: v3.22.1
+
+      - name: Validate chart version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          chart_version="$(helm show chart deployments/helm/volcano-vgpu-device-plugin | awk '$1 == "version:" { print $2; exit }')"
+          if [[ -z "${chart_version}" ]]; then
+            echo "Failed to resolve the chart version" >&2
+            exit 1
+          fi
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" != "v${chart_version}" ]]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match chart version ${chart_version}" >&2
+            exit 1
+          fi
+
+          echo "version=${chart_version}" >> "${GITHUB_OUTPUT}"
+
   helm-release:
+    needs: [validate-chart]
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # create GitHub Releases & push to gh-pages
-      packages: write   # push OCI chart to GHCR
+      contents: write # create GitHub Releases & push to gh-pages
 
     steps:
       - name: Checkout
@@ -32,7 +71,6 @@ jobs:
         with:
           version: v3.22.1
 
-
       - name: Run chart-releaser
         uses: helm/chart-releaser-action@92c6b97fa9f664492a2592e0d1d80bc6bf378957 # v1.9.0
         with:
@@ -40,6 +78,23 @@ jobs:
           skip_existing: true
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+
+  oci-release:
+    needs: [validate-chart]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Helm
+        uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: v3.22.1
 
       - name: Log in to GHCR
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
@@ -49,12 +104,34 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push chart to GHCR (OCI)
+        shell: bash
+        env:
+          CHART_VERSION: ${{ needs.validate-chart.outputs.version }}
         run: |
-          REPO_LOWER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
-          # Extract chart version from Chart.yaml
-          CHART_VERSION=$(grep '^version:' deployments/helm/volcano-vgpu-device-plugin/Chart.yaml | awk '{print $2}')
+          set -euo pipefail
 
-          helm package deployments/helm/volcano-vgpu-device-plugin --destination /tmp/helm-pkg
+          namespace="${GITHUB_REPOSITORY_OWNER,,}"
+          chart_ref="oci://ghcr.io/${namespace}/charts/volcano-vgpu-device-plugin"
+          registry_tag="${CHART_VERSION//+/_}"
+          manifest_url="https://ghcr.io/v2/${namespace}/charts/volcano-vgpu-device-plugin/manifests/${registry_tag}"
+          lookup_error="$(mktemp)"
+          trap 'rm -f "${lookup_error}"' EXIT
 
-          helm push "/tmp/helm-pkg/volcano-vgpu-device-plugin-${CHART_VERSION}.tgz" \
-            "oci://ghcr.io/${REPO_LOWER}/charts"
+          if helm show chart "${chart_ref}" --version "${CHART_VERSION}" >/dev/null 2>"${lookup_error}"; then
+            echo "${chart_ref}:${CHART_VERSION} already exists; skipping GHCR push"
+            exit 0
+          fi
+
+          if ! grep -Fq "${chart_ref#oci://}:${registry_tag}: not found" "${lookup_error}" &&
+             ! grep -Eqi 'manifest unknown|MANIFEST_UNKNOWN' "${lookup_error}" &&
+             ! grep -Fq "${manifest_url}: 404 Not Found" "${lookup_error}"; then
+            echo "Failed to query ${chart_ref}:${CHART_VERSION}" >&2
+            cat "${lookup_error}" >&2
+            exit 1
+          fi
+
+          package_dir="${RUNNER_TEMP}/helm-pkg"
+          helm package deployments/helm/volcano-vgpu-device-plugin --destination "${package_dir}"
+
+          helm push "${package_dir}/volcano-vgpu-device-plugin-${CHART_VERSION}.tgz" \
+            "oci://ghcr.io/${namespace}/charts"
