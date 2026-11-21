@@ -123,14 +123,23 @@ func TestReleaseNotesBlockPublishing(t *testing.T) {
 					}
 				}
 			}
-			for _, ready := range []bool{false, true} {
-				name := "missing"
+			entries := []struct {
+				name  string
+				notes string
+				ready bool
+			}{
+				{"missing", "", false},
+				{"empty bullet", "- \n", false},
+				{"inline placeholder", "- Improve scheduling (TODO: describe impact).\n", false},
+				{"formatted placeholder", "- **TBD**\n", false},
+				{"reviewed", "- Adds a reviewed feature and describes upgrade impact.\n", true},
+			}
+			for _, entry := range entries {
 				notes := "# Release notes\n\n## v1.13.0\n\n- Existing release.\n"
-				if ready {
-					name = "reviewed"
-					notes += "\n## " + test.heading + "\n\n- Adds a reviewed feature and describes upgrade impact.\n"
+				if entry.notes != "" {
+					notes += "\n## " + test.heading + "\n\n" + entry.notes
 				}
-				t.Run(name, func(t *testing.T) {
+				t.Run(entry.name, func(t *testing.T) {
 					directory := fixture(t, notes)
 					marker := filepath.Join(directory, "published")
 					command := exec.Command("bash", "-eu", "-o", "pipefail", "-c", step.Run+"\nprintf published > \"$PUBLISH_MARKER\"\n")
@@ -138,11 +147,11 @@ func TestReleaseNotesBlockPublishing(t *testing.T) {
 					command.Env = append(os.Environ(), test.variable+"="+test.version, "PUBLISH_MARKER="+marker)
 					output, err := command.CombinedOutput()
 					_, markerErr := os.Stat(marker)
-					if ready && (err != nil || markerErr != nil) {
+					if entry.ready && (err != nil || markerErr != nil) {
 						t.Fatalf("reviewed release was blocked: %v, marker: %v\n%s", err, markerErr, output)
 					}
-					if !ready && (err == nil || !os.IsNotExist(markerErr)) {
-						t.Fatalf("release without notes reached publishing: %v, marker: %v\n%s", err, markerErr, output)
+					if !entry.ready && (err == nil || !os.IsNotExist(markerErr)) {
+						t.Fatalf("incomplete release notes reached publishing: %v, marker: %v\n%s", err, markerErr, output)
 					}
 				})
 			}
@@ -162,14 +171,30 @@ func TestReleaseNotesEntryValidation(t *testing.T) {
 		{"chart", "chart", "1.14.0", "## Helm chart 1.14.0\n- Updates image versions.\n", true},
 		{"prerelease", "plugin", "v1.14.0-rc.1+build.2", "## v1.14.0-rc.1+build.2\n- Adds a release candidate.\n", true},
 		{"empty", "plugin", "v1.14.0", "## v1.14.0\n", false},
+		{"empty bullet", "plugin", "v1.14.0", "## v1.14.0\n- \n", false},
+		{"whitespace bullets", "plugin", "v1.14.0", "## v1.14.0\n  - \t \n*   \n", false},
+		{"markup-only bullets", "plugin", "v1.14.0", "## v1.14.0\n- ** **\n- ` `\n", false},
+		{"mixed bullets", "plugin", "v1.14.0", "## v1.14.0\n- \n- Fixes allocation.\n* \t\n", true},
 		{"links only", "plugin", "v1.14.0", "## v1.14.0\n[Changes](https://example.org)\n", false},
 		{"placeholder", "plugin", "v1.14.0", "## v1.14.0\n- TBD\n", false},
+		{"inline TODO", "plugin", "v1.14.0", "## v1.14.0\n- Improve scheduling (TODO: describe impact).\n", false},
+		{"inline lowercase TBD", "plugin", "v1.14.0", "## v1.14.0\n- Adds a feature (tbd).\n", false},
+		{"trailing PLACEHOLDER", "plugin", "v1.14.0", "## v1.14.0\n- Fixes allocation. PLACEHOLDER\n", false},
+		{"continued bullet placeholder", "plugin", "v1.14.0", "## v1.14.0\n- Improves scheduling.\n  TODO: describe upgrade impact.\n", false},
+		{"bold TBD", "plugin", "v1.14.0", "## v1.14.0\n- **TBD**\n", false},
+		{"italic TODO", "plugin", "v1.14.0", "## v1.14.0\n- *TODO*\n", false},
+		{"underscore PLACEHOLDER", "plugin", "v1.14.0", "## v1.14.0\n- __PLACEHOLDER__\n", false},
+		{"inline code TODO", "plugin", "v1.14.0", "## v1.14.0\n- `TODO`\n", false},
+		{"nested formatting", "plugin", "v1.14.0", "## v1.14.0\n- Improves scheduling (**`TBD`**).\n", false},
+		{"substantive Markdown", "plugin", "v1.14.0", "## v1.14.0\n- **Fixes allocation** with `runtimeClassName` enabled.\n", true},
+		{"marker substrings", "plugin", "v1.14.0", "## v1.14.0\n- Corrects todo_count and placeholder_count defaults and removes obsolete TODOs.\n", true},
 		{"duplicate", "plugin", "v1.14.0", "## v1.14.0\n- First.\n## v1.14.0\n- Second.\n", false},
 		{"code example", "plugin", "v1.14.0", "```markdown\n## v1.14.0\n- Example.\n```\n", false},
 		{"long code fence", "plugin", "v1.14.0", "````markdown\n```\n## v1.14.0\n- Example.\n````\n", false},
 		{"unclosed code fence", "plugin", "v1.14.0", "```markdown\n## v1.14.0\n- Example.\n", false},
 		{"fenced bullet", "plugin", "v1.14.0", "## v1.14.0\n```markdown\n- Example only.\n```\n", false},
 		{"example plus release", "plugin", "v1.14.0", "```markdown\n## v1.14.0\n- Example.\n```\n## v1.14.0\n- Fixes allocation.\n", true},
+		{"fenced placeholder example", "plugin", "v1.14.0", "## v1.14.0\n- Fixes allocation.\n```markdown\n- TBD\n```\n", true},
 		{"neighbor entry", "plugin", "v1.14.0", "## v1.14.0\n\n## v1.15.0\n- Other release.\n", false},
 		{"invalid version", "plugin", "main", "## main\n- Other branch.\n", false},
 		{"leading zero", "plugin", "v01.14.0", "## v01.14.0\n- Other version.\n", false},

@@ -55,10 +55,13 @@ def verify(changelog, version, kind):
         raise ValueError(f"{changelog} contains an unclosed code block")
     if len(entries) != 1:
         raise ValueError(f"expected exactly one '## {heading}' entry in {changelog}, found {len(entries)}")
-    summaries = [line.strip()[2:].strip() for line in entries[0] if re.match(r"^\s*[-*]\s+", line)]
+    markdown_wrappers = str.maketrans("", "", "*_`")
+    summaries = [line.strip()[2:].translate(markdown_wrappers).strip() for line in entries[0] if re.match(r"^\s*[-*]\s+", line)]
+    summaries = [item for item in summaries if item]
     if not summaries:
         raise ValueError(f"'## {heading}' must contain human-reviewed summary bullets")
-    if any(re.match(r"^(TODO|TBD|PLACEHOLDER)\b", item, re.IGNORECASE) for item in summaries):
+    entry_text = "\n".join(entries[0]).translate(markdown_wrappers)
+    if re.search(r"\b(TODO|TBD|PLACEHOLDER)\b", entry_text, re.IGNORECASE):
         raise ValueError(f"'## {heading}' still contains a placeholder")
     return heading
 

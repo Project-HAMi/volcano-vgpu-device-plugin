@@ -83,6 +83,9 @@ Before creating a `vX.Y.Z` tag:
    Replace `X.Y.Z` with the actual versions. The publishing workflows run these
    checks and stop before registry authentication or publication when an entry
    is missing, duplicated, empty or still contains a placeholder.
+   `TODO`, `TBD` and `PLACEHOLDER` are reserved unfinished-note markers. They
+   are rejected anywhere in the entry's text, including Markdown emphasis or
+   inline-code wrappers. Fenced examples are ignored.
 4. Run the contribution checks, obtain maintainer review and merge the release
    pull request before tagging the reviewed commit. Publish the GitHub release
    with the corresponding changelog summary and source comparison link. Review
