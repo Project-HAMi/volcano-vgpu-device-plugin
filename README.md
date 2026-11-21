@@ -13,7 +13,7 @@ A node uses one mode, and a cluster can mix both. Plugin settings are described 
 
 | volcano-vgpu | Volcano |
 |---|---|
-| v1.13.0 | v1.15.0 and above |
+| v1.13.0 | v1.15.1 and above |
 | v1.12.0 and below | v1.15.0 and below |
 | master | master |
 
@@ -45,6 +45,20 @@ tiers:
   - name: proportion
   - name: nodeorder
   - name: binpack
+```
+
+After updating `volcano-scheduler-configmap`, restart `volcano-scheduler`, wait
+for the rollout to finish, and trigger a node annotation update before creating
+vGPU workloads (relying on hot reload alone can leave `deviceshare`'s
+`sync.Once` vGPU registration skipped, and `kubectl annotate` forces a node
+update event so `volcano-scheduler` re-syncs each node's
+`volcano.sh/node-vgpu-register` annotation into its cache; other Volcano
+components do not need a restart):
+
+```shell
+kubectl rollout restart deployment/volcano-scheduler -n volcano-system
+kubectl rollout status deployment/volcano-scheduler -n volcano-system
+kubectl annotate nodes --all volcano.sh/vgpu-resync="$(date +%s)" --overwrite
 ```
 
 ## Install
@@ -86,6 +100,20 @@ number capacity is the GPU count times `deviceSplitCount` (10 by default). The
 memory capacity is expressed in the blocks described below, not always in MiB.
 
 With Karpenter, GPU nodes start from zero only if Karpenter knows these resources in advance: see [doc/karpenter.md](doc/karpenter.md).
+
+After creating a vGPU pod, verify that Volcano added the device allocation
+annotations:
+
+```shell
+kubectl get pod <pod> -o yaml | grep -E \
+  'volcano.sh/(devices-to-allocate|vgpu-ids-new|vgpu-node)'
+```
+
+If a pod that has not yet been allocated was created before the updated
+configuration took effect and lacks these annotations, kubelet may reject it
+with `UnexpectedAdmissionError: Allocate failed due to rpc error: code =
+Unknown desc = cannot get valid pod`; recreate it after the `volcano-scheduler`
+restart and node annotation step.
 
 ## Run a vGPU job
 
