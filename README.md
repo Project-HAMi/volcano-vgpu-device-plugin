@@ -158,6 +158,11 @@ The plugin pod serves per-container GPU usage and limits on port 9394:
 curl <plugin-pod-ip>:9394/metrics
 ```
 
+## Release notes
+
+See [CHANGELOG.md](CHANGELOG.md) for summaries of the release tags and links to
+the published GitHub release notes.
+
 ## Contributing and security
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities as described in [SECURITY.md](SECURITY.md), not in a public issue. Questions go to [GitHub issues](https://github.com/Project-HAMi/volcano-vgpu-device-plugin/issues) or the [HAMi community](https://github.com/Project-HAMi/community).
