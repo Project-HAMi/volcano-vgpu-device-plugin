@@ -40,6 +40,7 @@ type releaseWorkflow struct {
 	Jobs        map[string]releaseJob `json:"jobs"`
 	Concurrency struct {
 		Group            string `json:"group"`
+		Queue            string `json:"queue"`
 		CancelInProgress bool   `json:"cancel-in-progress"`
 	} `json:"concurrency"`
 }
@@ -105,8 +106,8 @@ func TestPublishingJobsAreIndependent(t *testing.T) {
 	if !dependsOn(workflow, pages, validation) || !dependsOn(workflow, oci, validation) {
 		t.Fatal("both publishers must wait for version validation")
 	}
-	if workflow.Concurrency.Group == "" || workflow.Concurrency.CancelInProgress {
-		t.Fatal("release runs must be serialized without cancelling an active publisher")
+	if workflow.Concurrency.Group == "" || workflow.Concurrency.Queue != "max" || workflow.Concurrency.CancelInProgress {
+		t.Fatal("release runs must use a serialized pending queue with cancellation disabled")
 	}
 }
 
@@ -124,6 +125,7 @@ case "$1" in
       missing) echo "Error: ${3#oci://}:${CHART_VERSION//+/_}: not found" >&2 ;;
       manifest_unknown) echo 'Error: MANIFEST_UNKNOWN: manifest unknown' >&2 ;;
       http_404) echo "Error: unexpected status from HEAD request to https://ghcr.io/v2/project-hami/charts/volcano-vgpu-device-plugin/manifests/${CHART_VERSION//+/_}: 404 Not Found" >&2 ;;
+      http_denied) echo "Error: unexpected status from HEAD request to https://ghcr.io/v2/project-hami/charts/volcano-vgpu-device-plugin/manifests/${CHART_VERSION//+/_}: 401 Unauthorized" >&2 ;;
       denied) echo 'Error: 403 Forbidden' >&2 ;;
       credentials) echo 'Error: credentials not found' >&2 ;;
       timeout) echo 'Error: context deadline exceeded' >&2 ;;
@@ -253,6 +255,22 @@ func TestOCIPublicationGuard(t *testing.T) {
 			}
 			if pushed && !strings.HasSuffix(strings.TrimSpace(calls), ".tgz oci://ghcr.io/project-hami/charts") {
 				t.Fatalf("incorrect publication destination: %s", calls)
+			}
+		})
+	}
+}
+
+func TestOCIFailedLookupWith404InVersion(t *testing.T) {
+	_, step := findStep(t, loadWorkflow(t), func(step releaseStep) bool {
+		return strings.Contains(step.Run, "helm push")
+	})
+	for _, version := range []string{"1.13.404", "1.13.0+404"} {
+		t.Run(version, func(t *testing.T) {
+			log, calls, _, err := runStep(t, step.Run, map[string]string{
+				"CHART_VERSION": version, "LOOKUP_STATUS": "http_denied",
+			})
+			if err == nil || strings.Contains(calls, "\npackage ") || strings.Contains(calls, "\npush ") {
+				t.Fatalf("a version containing 404 must not turn an authorization error into publication: error=%v, calls=%s, log=%s", err, calls, log)
 			}
 		})
 	}

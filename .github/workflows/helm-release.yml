@@ -11,6 +11,7 @@ permissions:
 
 concurrency:
   group: helm-release
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -123,7 +124,7 @@ jobs:
 
           if ! grep -Fq "${chart_ref#oci://}:${registry_tag}: not found" "${lookup_error}" &&
              ! grep -Eqi 'manifest unknown|MANIFEST_UNKNOWN' "${lookup_error}" &&
-             ! { grep -Fq "${manifest_url}" "${lookup_error}" && grep -Eq '(^|[^0-9])404([^0-9]|$)' "${lookup_error}"; }; then
+             ! grep -Fq "${manifest_url}: 404 Not Found" "${lookup_error}"; then
             echo "Failed to query ${chart_ref}:${CHART_VERSION}" >&2
             cat "${lookup_error}" >&2
             exit 1
