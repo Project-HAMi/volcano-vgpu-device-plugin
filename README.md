@@ -49,12 +49,19 @@ tiers:
 
 ## Install
 
-No Helm repository is published yet, so install from a checkout:
+Install chart version 1.13.0 from the Helm repository:
 
 ```shell
-git clone https://github.com/Project-HAMi/volcano-vgpu-device-plugin
-cd volcano-vgpu-device-plugin
-helm install volcano-vgpu-device-plugin deployments/helm/volcano-vgpu-device-plugin
+helm repo add volcano-vgpu https://project-hami.github.io/volcano-vgpu-device-plugin
+helm repo update
+helm install volcano-vgpu-device-plugin volcano-vgpu/volcano-vgpu-device-plugin --version 1.13.0
+```
+
+The same chart is also available through GHCR OCI:
+
+```shell
+helm install volcano-vgpu-device-plugin \
+  oci://ghcr.io/project-hami/charts/volcano-vgpu-device-plugin --version 1.13.0
 ```
 
 Or apply the plain manifest:
