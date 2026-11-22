@@ -16,30 +16,56 @@
 """Require a reviewed changelog entry before publishing a release."""
 
 import argparse
+from html.parser import HTMLParser
 from pathlib import Path
 import re
 import sys
 
+from markdown_it import MarkdownIt
 
-def without_html_comments(line, in_comment):
-    """Remove hidden text while preserving literal comment syntax in inline code."""
-    parts = []
-    while line:
-        if in_comment:
-            _, closed, line = line.partition("-->")
-            in_comment = not closed
-        else:
-            marker = re.search(r"(`+).*?\1|<!--", line)
-            if marker is None:
-                parts.append(line)
-                break
-            parts.append(line[:marker.start()])
-            if marker[1] is None:
-                in_comment = True
-            else:
-                parts.append(marker[0])
-            line = line[marker.end():]
-    return "".join(parts), in_comment
+
+class HTMLText(HTMLParser):
+    """Read displayed HTML text while ignoring comments and code/hidden blocks."""
+
+    hidden_tags = ("script", "style", "template", "pre", "head", "title")
+
+    def __init__(self):
+        super().__init__()
+        self.parts = []
+        self.hidden = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.hidden_tags:
+            self.hidden += 1
+
+    def handle_endtag(self, tag):
+        if tag in self.hidden_tags:
+            self.hidden = max(0, self.hidden - 1)
+
+    def handle_data(self, data):
+        if not self.hidden:
+            self.parts.append(data)
+
+
+def html_text(token):
+    parser = HTMLText()
+    parser.feed(token.content)
+    parser.close()
+    return "".join(parser.parts)
+
+
+def inline_text(token):
+    """Read displayed text and inline code, excluding HTML and link destinations."""
+    parser = HTMLText()
+    for child in token.children or []:
+        if child.type in ("text", "code_inline"):
+            parser.handle_data(child.content)
+        elif child.type == "html_inline":
+            parser.feed(child.content)
+        elif child.type in ("softbreak", "hardbreak"):
+            parser.handle_data(" ")
+    parser.close()
+    return "".join(parser.parts)
 
 
 def verify(changelog, version, kind):
@@ -53,41 +79,44 @@ def verify(changelog, version, kind):
     heading = "v" + version if kind == "plugin" else "Helm chart " + version
     entries = []
     current = None
-    fence = None
-    html_comment = False
-    for line in changelog.read_text(encoding="utf-8").splitlines():
-        indented_code = line.expandtabs(4).startswith("    ")
-        if fence is None and (html_comment or not indented_code):
-            line, html_comment = without_html_comments(line, html_comment)
-        fence_match = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
-        if fence_match:
-            marker = fence_match[1]
-            if fence is None:
-                fence = (marker[0], len(marker))
-            elif marker[0] == fence[0] and len(marker) >= fence[1] and not line[fence_match.end():].strip():
-                fence = None
-            continue
-        if fence is not None:
-            continue
-        header = re.fullmatch(r"##\s+(.+?)\s*", line)
-        if header:
-            current = [] if header[1] == heading else None
+    tokens = MarkdownIt("commonmark").parse(changelog.read_text(encoding="utf-8"))
+    for index, token in enumerate(tokens):
+        # A closed fence spans its opening, content lines and closing line.
+        if token.type == "fence" and token.map[1] - token.map[0] != token.content.count("\n") + 2:
+            raise ValueError(f"{changelog} contains an unclosed code block")
+        for part in [token, *(token.children or [])]:
+            if part.type in ("html_block", "html_inline") and part.content.lstrip().startswith("<!--") and "-->" not in part.content:
+                raise ValueError(f"{changelog} contains an unclosed HTML comment")
+        if token.type == "heading_open" and token.tag == "h2" and token.level == 0:
+            current = [] if inline_text(tokens[index + 1]) == heading else None
             if current is not None:
                 entries.append(current)
         elif current is not None:
-            current.append(line)
-    if fence is not None:
-        raise ValueError(f"{changelog} contains an unclosed code block")
-    if html_comment:
-        raise ValueError(f"{changelog} contains an unclosed HTML comment")
+            current.append(token)
     if len(entries) != 1:
         raise ValueError(f"expected exactly one '## {heading}' entry in {changelog}, found {len(entries)}")
-    markdown_wrappers = str.maketrans("", "", "*_`")
-    summaries = [line.strip()[2:].translate(markdown_wrappers).strip() for line in entries[0] if re.match(r"^ {0,3}[-*]\s+", line)]
-    summaries = [item for item in summaries if item]
-    if not summaries:
+    summaries = []
+    prose = []
+    item = None
+    bullet_list = False
+    for token in entries[0]:
+        if token.type == "bullet_list_open" and token.level == 0:
+            bullet_list = True
+        elif token.type == "bullet_list_close" and token.level == 0:
+            bullet_list = False
+        elif token.type == "list_item_open" and token.level == 1 and bullet_list:
+            item = []
+        elif token.type == "list_item_close" and token.level == 1 and item is not None:
+            summaries.append(" ".join(item))
+            item = None
+        elif token.type in ("inline", "html_block"):
+            text = inline_text(token) if token.type == "inline" else html_text(token)
+            prose.append(text)
+            if item is not None:
+                item.append(text)
+    if not any(any(character.isalnum() for character in summary) for summary in summaries):
         raise ValueError(f"'## {heading}' must contain human-reviewed summary bullets")
-    entry_text = "\n".join(entries[0]).translate(markdown_wrappers)
+    entry_text = "\n".join(prose)
     if re.search(r"\b(TODO|TBD|PLACEHOLDER)\b", entry_text, re.IGNORECASE):
         raise ValueError(f"'## {heading}' still contains a placeholder")
     return heading

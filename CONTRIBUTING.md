@@ -49,11 +49,18 @@ Unit tests run on every pull request through the build workflow and can be run
 locally:
 
 ```shell
+python3 -m venv /tmp/volcano-release-notes-env
+. /tmp/volcano-release-notes-env/bin/activate
+python3 -m pip install --require-hashes -r hack/release-notes/requirements.txt
 git submodule update --init --recursive
 go build ./...
 go vet ./...
 go test ./...
 ```
+
+The release-note tests require Python 3.10 or newer and the pinned CommonMark
+parser dependencies installed above. CI uses Python 3.12. The dependencies are
+development tools for verification.
 
 ## Maintaining tests
 
@@ -73,7 +80,8 @@ Before creating a `vX.Y.Z` tag:
 2. When publishing the Helm chart, add a `## Helm chart X.Y.Z` section for the
    chart version. Keep the chart version, application version and release tag
    consistent.
-3. Check both entries before merging the release pull request:
+3. Use the Python environment from [Running tests](#running-tests) and check
+   both entries before merging the release pull request:
 
    ```shell
    python3 hack/verify-release-notes.py --kind plugin --version vX.Y.Z
@@ -84,10 +92,12 @@ Before creating a `vX.Y.Z` tag:
    checks and stop before registry authentication or publication when an entry
    is missing, duplicated, empty or still contains a placeholder.
    Use top-level summary bullets with no more than three leading spaces.
-   HTML comments and indented code do not count as summary bullets.
+   HTML comments, fenced/indented code and empty link labels do not count as
+   summary text. CommonMark parsing distinguishes code from list continuations
+   and keeps readable link labels while excluding their destinations.
    `TODO`, `TBD` and `PLACEHOLDER` are reserved unfinished-note markers. They
    are rejected anywhere in the entry's text, including Markdown emphasis or
-   inline-code wrappers. Fenced examples are ignored.
+   inline-code wrappers. Code blocks are ignored.
 4. Run the contribution checks, obtain maintainer review and merge the release
    pull request before tagging the reviewed commit. Publish the GitHub release
    with the corresponding changelog summary and source comparison link. Review
