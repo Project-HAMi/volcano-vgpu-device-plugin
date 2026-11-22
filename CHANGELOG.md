@@ -47,32 +47,6 @@ policy and image verification instructions.
 - Fixes ConfigMap value precedence, CDI/MIG allocation and preferred allocation.
 - Updates HAMi-core and synchronizes with NVIDIA's v0.19.0 device plugin.
 
-Go module upgrades, replacements and removals, together with the Go image
-builder update from 1.23.7 to 1.25.5, address the following 57 advisory IDs.
-These are version-level dependency/build-tool records; they do not establish
-that every affected function was reachable in this plugin.
-
-| Module or build tool | Version change | Advisory identifiers |
-| --- | --- | --- |
-| `github.com/dgrijalva/jwt-go` | `v3.2.0+incompatible` removed/replaced | `CVE-2020-26160` |
-| `github.com/elazarl/goproxy` | `v0.0.0-20180725130230-947c36da3153` removed/replaced | `CVE-2023-37788` |
-| `github.com/emicklei/go-restful` | `v0.0.0-20170410110728-ff4f55a20633` removed/replaced | `CVE-2022-1996` |
-| `github.com/gogo/protobuf` | `v1.3.1` to `v1.3.2` | `CVE-2021-3121` |
-| `github.com/golang/glog` | `v0.0.0-20160126235308-23def4e6c14b` to `v1.2.5` | `CVE-2024-45339` |
-| `github.com/prometheus/client_golang` | `v1.0.0` to `v1.23.2` | `CVE-2022-21698` |
-| `github.com/sirupsen/logrus` | `v1.2.0` to `v1.9.4` | `CVE-2025-65637` |
-| `golang.org/x/crypto` | `v0.0.0-20200220183623-bac4c82f6975` to `v0.46.0` | `CVE-2020-29652`, `CVE-2021-43565`, `CVE-2022-27191`, `CVE-2022-30636`, `CVE-2023-48795`, `CVE-2024-45337`, `CVE-2025-22869`, `CVE-2025-47913`, `CVE-2025-47914`, `CVE-2025-58181` |
-| `golang.org/x/net` | `v0.0.0-20200421231249-e086a090c8fd` to `v0.48.0` | `CVE-2021-31525`, `CVE-2021-33194`, `CVE-2021-44716`, `CVE-2022-27664`, `CVE-2022-41717`, `CVE-2022-41723`, `CVE-2023-39325`, `CVE-2023-3978`, `CVE-2023-44487`, `CVE-2023-45288`, `CVE-2024-45338`, `CVE-2025-22870`, `CVE-2025-22872`, `CVE-2025-47911`, `CVE-2025-58190` |
-| `golang.org/x/oauth2` | `v0.0.0-20190604053449-0f29369cfe45` to `v0.34.0` | `CVE-2025-22868` |
-| `golang.org/x/sys` | `v0.0.0-20200413165638-669c56c373c4` to `v0.41.0` | `CVE-2022-29526` |
-| `golang.org/x/text` | `v0.3.2` to `v0.32.0` | `CVE-2020-14040`, `CVE-2021-38561`, `CVE-2022-32149` |
-| `k8s.io/apimachinery` | `v0.18.2` to `v0.35.2` | `CVE-2020-8559` |
-| `k8s.io/client-go` | `v0.18.2` to `v0.35.2` | `CVE-2020-8565` |
-| `stdlib` | `1.23.7` to `1.25.5` | `CVE-2025-0913`, `CVE-2025-22871`, `CVE-2025-22873`, `CVE-2025-4673`, `CVE-2025-47906`, `CVE-2025-47907`, `CVE-2025-47912`, `CVE-2025-58183`, `CVE-2025-58185`, `CVE-2025-58186`, `CVE-2025-58187`, `CVE-2025-58188`, `CVE-2025-58189`, `CVE-2025-61723`, `CVE-2025-61724`, `CVE-2025-61725`, `CVE-2025-61727`, `CVE-2025-61729` |
-
-Advisory records: [Go vulnerability database](https://vuln.go.dev/)
-and [GitHub Advisory Database](https://github.com/advisories).
-
 [Published notes](https://github.com/Project-HAMi/volcano-vgpu-device-plugin/releases/tag/v1.12.0)
 | [Changes since v1.11.0](https://github.com/Project-HAMi/volcano-vgpu-device-plugin/compare/v1.11.0...v1.12.0)
 
