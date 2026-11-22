@@ -21,6 +21,27 @@ import re
 import sys
 
 
+def without_html_comments(line, in_comment):
+    """Remove hidden text while preserving literal comment syntax in inline code."""
+    parts = []
+    while line:
+        if in_comment:
+            _, closed, line = line.partition("-->")
+            in_comment = not closed
+        else:
+            marker = re.search(r"(`+).*?\1|<!--", line)
+            if marker is None:
+                parts.append(line)
+                break
+            parts.append(line[:marker.start()])
+            if marker[1] is None:
+                in_comment = True
+            else:
+                parts.append(marker[0])
+            line = line[marker.end():]
+    return "".join(parts), in_comment
+
+
 def verify(changelog, version, kind):
     version = version.removeprefix("v")
     if not re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?", version):
@@ -33,8 +54,12 @@ def verify(changelog, version, kind):
     entries = []
     current = None
     fence = None
+    html_comment = False
     for line in changelog.read_text(encoding="utf-8").splitlines():
-        fence_match = re.match(r"^\s*(`{3,}|~{3,})", line)
+        indented_code = line.expandtabs(4).startswith("    ")
+        if fence is None and (html_comment or not indented_code):
+            line, html_comment = without_html_comments(line, html_comment)
+        fence_match = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
         if fence_match:
             marker = fence_match[1]
             if fence is None:
@@ -53,10 +78,12 @@ def verify(changelog, version, kind):
             current.append(line)
     if fence is not None:
         raise ValueError(f"{changelog} contains an unclosed code block")
+    if html_comment:
+        raise ValueError(f"{changelog} contains an unclosed HTML comment")
     if len(entries) != 1:
         raise ValueError(f"expected exactly one '## {heading}' entry in {changelog}, found {len(entries)}")
     markdown_wrappers = str.maketrans("", "", "*_`")
-    summaries = [line.strip()[2:].translate(markdown_wrappers).strip() for line in entries[0] if re.match(r"^\s*[-*]\s+", line)]
+    summaries = [line.strip()[2:].translate(markdown_wrappers).strip() for line in entries[0] if re.match(r"^ {0,3}[-*]\s+", line)]
     summaries = [item for item in summaries if item]
     if not summaries:
         raise ValueError(f"'## {heading}' must contain human-reviewed summary bullets")

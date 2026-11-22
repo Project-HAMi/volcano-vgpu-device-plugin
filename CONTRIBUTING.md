@@ -83,6 +83,8 @@ Before creating a `vX.Y.Z` tag:
    Replace `X.Y.Z` with the actual versions. The publishing workflows run these
    checks and stop before registry authentication or publication when an entry
    is missing, duplicated, empty or still contains a placeholder.
+   Use top-level summary bullets with no more than three leading spaces.
+   HTML comments and indented code do not count as summary bullets.
    `TODO`, `TBD` and `PLACEHOLDER` are reserved unfinished-note markers. They
    are rejected anywhere in the entry's text, including Markdown emphasis or
    inline-code wrappers. Fenced examples are ignored.
