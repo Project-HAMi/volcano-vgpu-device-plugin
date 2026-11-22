@@ -137,6 +137,8 @@ func TestReleaseNotesBlockPublishing(t *testing.T) {
 				{"empty link", "- [](#details)\n", false},
 				{"list continuation", "- Fixes allocation.\n    <!-- TODO: internal note. -->\n", true},
 				{"unequal backtick runs", "- Handles `a ``` <!-- b` correctly.\n", true},
+				{"HTML break placeholder", "- Fixes allocation.<br>TODO<br>Describe upgrade impact.\n", false},
+				{"next chapter only", "# Maintenance\n- Update tooling.\n", false},
 				{"reviewed", "- Adds a reviewed feature and describes upgrade impact.\n", true},
 			}
 			for _, entry := range entries {
@@ -238,6 +240,14 @@ func TestReleaseNotesEntryValidation(t *testing.T) {
 		{"script-only bullet", "plugin", "v1.14.0", "## v1.14.0\n- <script>Done.</script>\n", false},
 		{"inline script placeholder", "plugin", "v1.14.0", "## v1.14.0\n- Fixes allocation. <script>TODO</script>\n", true},
 		{"HTML code-only bullet", "plugin", "v1.14.0", "## v1.14.0\n- <pre>Example only.</pre>\n", false},
+		{"HTML break placeholder", "plugin", "v1.14.0", "## v1.14.0\n- Fixes allocation.<br>TODO<br>Describe upgrade impact.\n", false},
+		{"HTML block placeholder", "plugin", "v1.14.0", "## v1.14.0\n- <div>Fixes allocation.</div><div>TODO</div><div>Upgrade impact.</div>\n", false},
+		{"HTML pre boundary placeholder", "plugin", "v1.14.0", "## v1.14.0\n- Improve<pre>Example.</pre>TODO\n", false},
+		{"inline formatting joins marker", "plugin", "v1.14.0", "## v1.14.0\n- TO<strong>DO</strong>\n", false},
+		{"h1 cannot supply release summary", "plugin", "v1.14.0", "## v1.14.0\n\n# Maintenance\n- Update tooling.\n", false},
+		{"h1 ends marker checks", "plugin", "v1.14.0", "## v1.14.0\n- Fixes allocation.\n# Maintenance\n- TODO\n", true},
+		{"h3 retains release summary", "plugin", "v1.14.0", "## v1.14.0\n### Highlights\n- Fixes allocation.\n", true},
+		{"h1 cannot name release", "plugin", "v1.14.0", "# v1.14.0\n- Fixes allocation.\n", false},
 		{"neighbor entry", "plugin", "v1.14.0", "## v1.14.0\n\n## v1.15.0\n- Other release.\n", false},
 		{"invalid version", "plugin", "main", "## main\n- Other branch.\n", false},
 		{"leading zero", "plugin", "v01.14.0", "## v01.14.0\n- Other version.\n", false},

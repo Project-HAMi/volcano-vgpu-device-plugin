@@ -22,12 +22,14 @@ import re
 import sys
 
 from markdown_it import MarkdownIt
+from markdown_it.common.html_blocks import block_names
 
 
 class HTMLText(HTMLParser):
     """Read displayed HTML text while ignoring comments and code/hidden blocks."""
 
     hidden_tags = ("script", "style", "template", "pre", "head", "title")
+    boundary_tags = frozenset(block_names) | {"pre"}
 
     def __init__(self):
         super().__init__()
@@ -35,10 +37,14 @@ class HTMLText(HTMLParser):
         self.hidden = 0
 
     def handle_starttag(self, tag, attrs):
+        if tag == "br" or tag in self.boundary_tags:
+            self.parts.append(" ")
         if tag in self.hidden_tags:
             self.hidden += 1
 
     def handle_endtag(self, tag):
+        if tag in self.boundary_tags:
+            self.parts.append(" ")
         if tag in self.hidden_tags:
             self.hidden = max(0, self.hidden - 1)
 
@@ -87,8 +93,8 @@ def verify(changelog, version, kind):
         for part in [token, *(token.children or [])]:
             if part.type in ("html_block", "html_inline") and part.content.lstrip().startswith("<!--") and "-->" not in part.content:
                 raise ValueError(f"{changelog} contains an unclosed HTML comment")
-        if token.type == "heading_open" and token.tag == "h2" and token.level == 0:
-            current = [] if inline_text(tokens[index + 1]) == heading else None
+        if token.type == "heading_open" and token.tag in ("h1", "h2") and token.level == 0:
+            current = [] if token.tag == "h2" and inline_text(tokens[index + 1]) == heading else None
             if current is not None:
                 entries.append(current)
         elif current is not None:
