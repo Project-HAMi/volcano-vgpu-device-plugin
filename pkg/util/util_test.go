@@ -284,3 +284,60 @@ func TestGetOldestPod(t *testing.T) {
 		})
 	}
 }
+
+func TestGetNextDeviceRequestInitContainers(t *testing.T) {
+	pod := v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-pod",
+			Annotations: map[string]string{
+				AssignedIDsToAllocateAnnotations: "GPU-1,NVIDIA,1000,10:;GPU-2,NVIDIA,1000,10:;",
+			},
+		},
+		Spec: v1.PodSpec{
+			InitContainers: []v1.Container{
+				{Name: "init-0"},
+			},
+			Containers: []v1.Container{
+				{Name: "app-0"},
+			},
+		},
+	}
+
+	// Slot 0 maps to InitContainers[0]
+	ctr, devs, err := GetNextDeviceRequest("NVIDIA", pod)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctr.Name != "init-0" || len(devs) != 1 || devs[0].UUID != "GPU-1" {
+		t.Fatalf("expected init-0 with GPU-1, got %s %+v", ctr.Name, devs)
+	}
+}
+
+func TestGetNextDeviceRequestMultiInitContainersNoPanic(t *testing.T) {
+	pod := v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-pod-2-init",
+			Annotations: map[string]string{
+				AssignedIDsToAllocateAnnotations: ";GPU-2,NVIDIA,1000,10:;GPU-3,NVIDIA,1000,10:;",
+			},
+		},
+		Spec: v1.PodSpec{
+			InitContainers: []v1.Container{
+				{Name: "init-0"},
+				{Name: "init-1"},
+			},
+			Containers: []v1.Container{
+				{Name: "app-0"},
+			},
+		},
+	}
+
+	// Slot 1 maps to InitContainers[1], even when len(Containers) == 1
+	ctr, devs, err := GetNextDeviceRequest("NVIDIA", pod)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctr.Name != "init-1" || len(devs) != 1 || devs[0].UUID != "GPU-2" {
+		t.Fatalf("expected init-1 with GPU-2, got %s %+v", ctr.Name, devs)
+	}
+}

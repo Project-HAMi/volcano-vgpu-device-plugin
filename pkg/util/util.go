@@ -267,6 +267,7 @@ func GetNextDeviceRequest(dtype string, p v1.Pod) (v1.Container, ContainerDevice
 	pdevices, _ := DecodePodDevices(p.Annotations[AssignedIDsToAllocateAnnotations])
 	klog.V(4).Infoln("pdevices=", pdevices, "p.name", p.Name, "annos", p.Annotations)
 	res := ContainerDevices{}
+	initCount := len(p.Spec.InitContainers)
 	for idx, val := range pdevices {
 		found := false
 		for _, dev := range val {
@@ -276,7 +277,14 @@ func GetNextDeviceRequest(dtype string, p v1.Pod) (v1.Container, ContainerDevice
 			}
 		}
 		if found {
-			return p.Spec.Containers[idx], res, nil
+			if idx < initCount {
+				return p.Spec.InitContainers[idx], res, nil
+			}
+			appIdx := idx - initCount
+			if appIdx < len(p.Spec.Containers) {
+				return p.Spec.Containers[appIdx], res, nil
+			}
+			return v1.Container{}, res, fmt.Errorf("device request for container %d, pod has %d init and %d app containers", idx, initCount, len(p.Spec.Containers))
 		}
 	}
 	return v1.Container{}, res, errors.New("device request not found")
