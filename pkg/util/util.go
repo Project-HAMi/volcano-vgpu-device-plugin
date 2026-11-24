@@ -263,9 +263,13 @@ func DecodePodDevices(str string) (PodDevices, int) {
 	return pd, length
 }
 
+// GetNextDeviceRequest returns the next container that still has devices in the
+// allocation annotation. The scheduler writes one entry per container that
+// requests vGPU, so entry idx belongs to the idx-th such container.
 func GetNextDeviceRequest(dtype string, p v1.Pod) (v1.Container, ContainerDevices, error) {
 	pdevices, _ := DecodePodDevices(p.Annotations[AssignedIDsToAllocateAnnotations])
 	klog.V(4).Infoln("pdevices=", pdevices, "p.name", p.Name, "annos", p.Annotations)
+	ctrs := vgpuContainers(p)
 	res := ContainerDevices{}
 	for idx, val := range pdevices {
 		found := false
@@ -276,10 +280,27 @@ func GetNextDeviceRequest(dtype string, p v1.Pod) (v1.Container, ContainerDevice
 			}
 		}
 		if found {
-			return p.Spec.Containers[idx], res, nil
+			if idx >= len(ctrs) {
+				return v1.Container{}, res, fmt.Errorf("device request %d has no vGPU container", idx)
+			}
+			return ctrs[idx], res, nil
 		}
 	}
 	return v1.Container{}, res, errors.New("device request not found")
+}
+
+// vgpuContainers lists the containers the scheduler encodes, those with a
+// vGPU number or memory limit.
+func vgpuContainers(p v1.Pod) []v1.Container {
+	var res []v1.Container
+	for _, c := range p.Spec.Containers {
+		_, num := c.Resources.Limits[v1.ResourceName(ResourceName)]
+		_, mem := c.Resources.Limits[v1.ResourceName(ResourceMem)]
+		if num || mem {
+			res = append(res, c)
+		}
+	}
+	return res
 }
 
 func EraseNextDeviceTypeFromAnnotation(dtype string, p v1.Pod) error {
