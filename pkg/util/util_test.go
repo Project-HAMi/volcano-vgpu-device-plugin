@@ -232,7 +232,10 @@ func TestGetOldestPod(t *testing.T) {
 	}{
 		{"no pods", nil, "", false},
 		{"other node", []v1.Pod{pendingPod("a", "n2", small, at("1", "1"))}, "", false},
-		{"device count mismatch", []v1.Pod{pendingPod("a", "n1", small+"GPU-b,NVIDIA,1,1:;", at("1", "1"))}, "", false},
+		{"device count mismatch", []v1.Pod{pendingPod("a", "n1", "GPU-a,NVIDIA,683,30:GPU-b,NVIDIA,1,1:;", at("1", "1"))}, "", false},
+		{"first of two vGPU containers", []v1.Pod{pendingPod("a", "n1", small+"GPU-b,NVIDIA,1,1:;", at("1", "1"))}, "a", false},
+		{"second of two vGPU containers", []v1.Pod{pendingPod("a", "n1", ";GPU-b,NVIDIA,1,1:;", at("1", "1"))}, "a", false},
+		{"next container asks for two", []v1.Pod{pendingPod("a", "n1", ";GPU-a,NVIDIA,1,1:GPU-b,NVIDIA,1,1:;", at("1", "1"))}, "", false},
 		{"older vgpu-time wins", []v1.Pod{
 			pendingPod("new", "n1", big, at("5", "5")),
 			pendingPod("old", "n1", small, at("4", "9")),
