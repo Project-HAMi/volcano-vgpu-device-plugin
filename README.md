@@ -5,7 +5,7 @@ A Kubernetes device plugin that lets pods share NVIDIA GPUs under the [Volcano](
 A GPU is split into several vGPUs. Each pod asks for a number of vGPUs and, optionally, device memory and a share of the cores. There are two sharing modes:
 
 - `hami-core`: software isolation, works on any GPU.
-- `mig`: dynamic MIG, hardware isolation, needs an Ampere or newer GPU.
+- `mig`: dynamic MIG, hardware isolation, needs a MIG-capable GPU such as A30, A100 or H100, see [NVIDIA's supported GPU list](https://docs.nvidia.com/datacenter/tesla/mig-user-guide/).
 
 A node uses one mode, and a cluster can mix both. Plugin settings are described in [doc/config.md](doc/config.md).
 
@@ -17,7 +17,7 @@ A node uses one mode, and a cluster can mix both. Plugin settings are described 
 | v1.12.0 and below | v1.15.0 and below |
 | master | master |
 
-The plugin is built with client-go 0.37. The manifests in this repository were validated against Kubernetes 1.36.
+The plugin is built with client-go 0.37. The manifests in this repository were validated against Kubernetes 1.37 and Volcano v1.16.0.
 
 ## Requirements
 
@@ -26,7 +26,7 @@ The plugin is built with client-go 0.37. The manifests in this repository were v
 
 ## Enable vGPU in Volcano
 
-In `volcano-scheduler-configmap` (namespace `volcano-system`), add the `deviceshare` plugin with `VGPUEnable`:
+In `volcano-scheduler-configmap` (namespace `volcano-system`), add the `deviceshare` plugin with `VGPUEnable`. This is the Volcano v1.16 default configuration with `deviceshare` added:
 
 ```yaml
 actions: "enqueue, allocate, backfill"
@@ -34,9 +34,12 @@ tiers:
 - plugins:
   - name: priority
   - name: gang
+    enablePreemptable: false
   - name: conformance
 - plugins:
+  - name: overcommit
   - name: drf
+    enablePreemptable: false
   - name: deviceshare
     arguments:
       deviceshare.VGPUEnable: true
@@ -47,13 +50,7 @@ tiers:
   - name: binpack
 ```
 
-After updating `volcano-scheduler-configmap`, restart `volcano-scheduler`, wait
-for the rollout to finish, and trigger a node annotation update before creating
-vGPU workloads (relying on hot reload alone can leave `deviceshare`'s
-`sync.Once` vGPU registration skipped, and `kubectl annotate` forces a node
-update event so `volcano-scheduler` re-syncs each node's
-`volcano.sh/node-vgpu-register` annotation into its cache; other Volcano
-components do not need a restart):
+Then restart `volcano-scheduler` and touch the node annotations. `deviceshare` registers vGPU support only once per process, so a hot reload alone can leave it disabled, and the annotation update makes the scheduler read each node's `volcano.sh/node-vgpu-register` again. Other Volcano components do not need a restart:
 
 ```shell
 kubectl rollout restart deployment/volcano-scheduler -n volcano-system
@@ -130,14 +127,16 @@ spec:
   schedulerName: volcano
   containers:
   - name: cuda
-    image: nvidia/cuda:12.4.1-base-ubuntu22.04
+    image: nvidia/cuda:13.5.0-base-ubuntu24.04
     command: ["sleep", "infinity"]
     resources:
       limits:
-        volcano.sh/vgpu-number: 2    # two vGPUs
+        volcano.sh/vgpu-number: 1    # one vGPU
         volcano.sh/vgpu-memory: 3000 # optional: memory blocks per vGPU
         volcano.sh/vgpu-cores: 50    # optional: percent of a GPU per vGPU
 ```
+
+Each vGPU of a container lands on a different GPU, so a container cannot request more vGPUs than the node has GPUs. Without the `volcano.sh/vgpu-mode` annotation, either mode may be used. The image needs a node driver that supports its CUDA version; pick an older tag for older drivers.
 
 ### GPU memory units
 
@@ -175,12 +174,11 @@ allocated with the new block size.
 
 In `hami-core` mode `nvidia-smi` inside the container shows the resulting
 memory limit. In `mig` mode it shows the memory of the assigned MIG instance,
-which comes from the configured MIG geometry. A pod cannot request more vGPUs
-than the node has GPUs. Without the annotation, either mode may be used.
+which comes from the configured MIG geometry.
 
 ## Metrics
 
-The plugin pod serves per-container GPU usage and limits on port 9394:
+The `monitor` container of the plugin pod serves per-container GPU usage and limits on port 9394. It is not deployed with `monitor.enabled=false` or `nvmlMock.enabled=true`:
 
 ```shell
 curl <plugin-pod-ip>:9394/metrics

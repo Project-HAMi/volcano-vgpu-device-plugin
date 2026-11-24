@@ -1,6 +1,6 @@
 module volcano.sh/k8s-device-plugin
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/NVIDIA/go-gpuallocator v0.6.0
