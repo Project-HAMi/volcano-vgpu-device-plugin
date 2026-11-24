@@ -25,6 +25,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -282,5 +283,47 @@ func TestGetOldestPod(t *testing.T) {
 				t.Fatalf("got %q, want %q", gotName, tt.want)
 			}
 		})
+	}
+}
+
+func TestGetNextDeviceRequestSkipsNonVGPUContainers(t *testing.T) {
+	origName, origMem := ResourceName, ResourceMem
+	ResourceName, ResourceMem = "volcano.sh/vgpu-number", "volcano.sh/vgpu-memory"
+	t.Cleanup(func() { ResourceName, ResourceMem = origName, origMem })
+
+	limit := func(name string) v1.ResourceRequirements {
+		return v1.ResourceRequirements{Limits: v1.ResourceList{v1.ResourceName(name): resource.MustParse("1")}}
+	}
+	pod := v1.Pod{Spec: v1.PodSpec{Containers: []v1.Container{
+		{Name: "sidecar"},
+		{Name: "count", Resources: limit(ResourceName)},
+		{Name: "memory", Resources: limit(ResourceMem)},
+	}}}
+
+	tests := []struct {
+		annotation string
+		want       string
+		wantUUID   string
+		wantErr    bool
+	}{
+		{annotation: "GPU-a,NVIDIA,1000,0:;GPU-b,NVIDIA,2000,0:", want: "count", wantUUID: "GPU-a"},
+		{annotation: ";GPU-b,NVIDIA,2000,0:", want: "memory", wantUUID: "GPU-b"},
+		{annotation: ";;GPU-c,NVIDIA,2000,0:", wantErr: true},
+	}
+	for _, tt := range tests {
+		pod.Annotations = map[string]string{AssignedIDsToAllocateAnnotations: tt.annotation}
+		ctr, devs, err := GetNextDeviceRequest(NvidiaGPUDevice, pod)
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("%q: expected error, got container %q", tt.annotation, ctr.Name)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%q: %v", tt.annotation, err)
+		}
+		if ctr.Name != tt.want || len(devs) != 1 || devs[0].UUID != tt.wantUUID {
+			t.Errorf("%q: got container %q devices %v, want %q with %s", tt.annotation, ctr.Name, devs, tt.want, tt.wantUUID)
+		}
 	}
 }
