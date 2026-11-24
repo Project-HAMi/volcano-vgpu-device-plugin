@@ -52,7 +52,7 @@ After making changes, restart the volcano-vgpu-device-plugin and volcano-schedul
 
 * `name`: the name of the node, the following parameters will only take effect on this node. 
 * `operatingmode`: 
-String type, `hami-core` for using hami-core for container resource limitation, `mig` for using mig for container resource limitation (only available on Ampere or later GPU architectures)
+String type, `hami-core` for using hami-core for container resource limitation, `mig` for using mig for container resource limitation (only available on MIG-capable GPUs such as A100, A30, H100 and newer data center GPUs)
 * `devicememoryscaling`:
 Integer type, device memory oversubscription on that node
 * `devicecorescaling`: 
