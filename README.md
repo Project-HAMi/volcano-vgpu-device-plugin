@@ -5,7 +5,7 @@ A Kubernetes device plugin that lets pods share NVIDIA GPUs under the [Volcano](
 A GPU is split into several vGPUs. Each pod asks for a number of vGPUs and, optionally, device memory and a share of the cores. There are two sharing modes:
 
 - `hami-core`: software isolation, works on any GPU.
-- `mig`: dynamic MIG, hardware isolation, needs a MIG-capable GPU such as A100, A30, H100 or a newer data center GPU.
+- `mig`: dynamic MIG, hardware isolation, needs a MIG-capable GPU such as A30, A100 or H100, see [NVIDIA's supported GPU list](https://docs.nvidia.com/datacenter/tesla/mig-user-guide/).
 
 A node uses one mode, and a cluster can mix both. Plugin settings are described in [doc/config.md](doc/config.md).
 
