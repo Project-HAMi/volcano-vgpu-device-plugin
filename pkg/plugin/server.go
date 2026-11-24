@@ -446,6 +446,7 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 			}
 			response, err := plugin.getAllocateResponse(deviceStrArray)
 			if err != nil {
+				util.PodAllocationFailed(nodeName, current)
 				return nil, fmt.Errorf("failed to get allocate response: %v", err)
 			}
 			err = util.EraseNextDeviceTypeFromAnnotation(util.NvidiaGPUDevice, *current)
