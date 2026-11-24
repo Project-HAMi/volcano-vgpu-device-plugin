@@ -34,6 +34,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 
 	spec "volcano.sh/k8s-device-plugin/api/config/v1"
+	"volcano.sh/k8s-device-plugin/pkg/cdi"
 	"volcano.sh/k8s-device-plugin/pkg/config"
 	"volcano.sh/k8s-device-plugin/pkg/rm"
 	"volcano.sh/k8s-device-plugin/pkg/util"
@@ -128,13 +129,10 @@ func TestGetContainerDeviceStrArray_MIGTemplateError(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to generate MIG template")
 }
 
-// TestAllocate_MIGLookupError_PodAllocationFailed verifies that when device resolution fails during Allocate
-// for a MIG device request, Allocate calls PodAllocationFailed, releases the node lock, marks the pod as
-// failed, and returns an error without panicking.
-func TestAllocate_MIGLookupError_PodAllocationFailed(t *testing.T) {
-	config.SetNvml(mockNvmlError{})
-	t.Cleanup(config.ResetNvml)
-
+// newAllocateFailureClient installs a fake client holding a node lock and a
+// pending pod that is assigned the given devices.
+func newAllocateFailureClient(t *testing.T, devices string) *fake.Clientset {
+	t.Helper()
 	const testNode = "test-node"
 	t.Setenv("NODE_NAME", testNode)
 
@@ -150,7 +148,7 @@ func TestAllocate_MIGLookupError_PodAllocationFailed(t *testing.T) {
 			UID:       "test-pod-uid",
 			Annotations: map[string]string{
 				util.AssignedNodeAnnotations:          testNode,
-				util.AssignedIDsToAllocateAnnotations: "GPU-invalid[0],NVIDIA,1000,10:",
+				util.AssignedIDsToAllocateAnnotations: devices,
 				util.AssignedTimeAnnotations:          time.Now().Format(time.RFC3339),
 				util.DeviceBindPhase:                  util.DeviceBindAllocating,
 			},
@@ -207,6 +205,31 @@ func TestAllocate_MIGLookupError_PodAllocationFailed(t *testing.T) {
 
 	client.SetClient(fakeClient)
 	t.Cleanup(client.ResetClient)
+	return fakeClient
+}
+
+// assertAllocationFailed checks that the pod is marked failed and the node lock is gone.
+func assertAllocationFailed(t *testing.T, fakeClient *fake.Clientset) {
+	t.Helper()
+	updatedPod, err := fakeClient.CoreV1().Pods("default").Get(context.Background(), "test-pod", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, util.DeviceBindFailed, updatedPod.Annotations[util.DeviceBindPhase],
+		"pod device bind phase should be marked failed")
+
+	updatedNode, err := fakeClient.CoreV1().Nodes().Get(context.Background(), "test-node", metav1.GetOptions{})
+	require.NoError(t, err)
+	_, hasLock := updatedNode.Annotations[util.VGPUDeviceName]
+	assert.False(t, hasLock, "node lock should be released")
+}
+
+// TestAllocate_MIGLookupError_PodAllocationFailed verifies that when device resolution fails during Allocate
+// for a MIG device request, Allocate calls PodAllocationFailed, releases the node lock, marks the pod as
+// failed, and returns an error without panicking.
+func TestAllocate_MIGLookupError_PodAllocationFailed(t *testing.T) {
+	config.SetNvml(mockNvmlError{})
+	t.Cleanup(config.ResetNvml)
+
+	fakeClient := newAllocateFailureClient(t, "GPU-invalid[0],NVIDIA,1000,10:")
 
 	plugin := &nvidiaDevicePlugin{
 		rm: &rm.ResourceManagerMock{
@@ -227,13 +250,47 @@ func TestAllocate_MIGLookupError_PodAllocationFailed(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to get index and type from UUID GPU-invalid[0]")
 	assert.Equal(t, &pluginapi.AllocateResponse{}, resp)
 
-	updatedPod, err := fakeClient.CoreV1().Pods("default").Get(context.Background(), "test-pod", metav1.GetOptions{})
-	require.NoError(t, err)
-	assert.Equal(t, util.DeviceBindFailed, updatedPod.Annotations[util.DeviceBindPhase],
-		"pod device bind phase should be marked failed")
+	assertAllocationFailed(t, fakeClient)
+}
 
-	updatedNode, err := fakeClient.CoreV1().Nodes().Get(context.Background(), testNode, metav1.GetOptions{})
+// TestAllocate_AllocateResponseError_PodAllocationFailed verifies that a failing
+// CDI response on the non-MIG path also marks the pod failed and releases the node lock.
+func TestAllocate_AllocateResponseError_PodAllocationFailed(t *testing.T) {
+	fakeClient := newAllocateFailureClient(t, "GPU-bad!x,NVIDIA,1000,10:")
+
+	strategies, err := spec.NewDeviceListStrategies([]string{spec.DeviceListStrategyCDIAnnotations})
 	require.NoError(t, err)
-	_, hasLock := updatedNode.Annotations[util.VGPUDeviceName]
-	assert.False(t, hasLock, "node lock should be released")
+	plugin := &nvidiaDevicePlugin{
+		rm: &rm.ResourceManagerMock{
+			ResourceFunc: func() spec.ResourceName { return spec.ResourceName(util.ResourceName) },
+		},
+		config: &spec.Config{
+			Flags: spec.Flags{
+				CommandLineFlags: spec.CommandLineFlags{
+					Plugin: &spec.PluginCommandLineFlags{
+						DeviceIDStrategy: ptr(spec.DeviceIDStrategyUUID),
+					},
+				},
+			},
+		},
+		cdiHandler: &cdi.InterfaceMock{
+			QualifiedNameFunc:     func(c, s string) string { return "nvidia.com/" + c + "=" + s },
+			AdditionalDevicesFunc: func() []string { return nil },
+		},
+		deviceListStrategies: strategies,
+	}
+
+	reqs := &pluginapi.AllocateRequest{
+		ContainerRequests: []*pluginapi.ContainerAllocateRequest{
+			{
+				DevicesIds: []string{"test-gpu"},
+			},
+		},
+	}
+
+	resp, err := plugin.Allocate(context.Background(), reqs)
+	require.ErrorContains(t, err, "failed to get allocate response")
+	assert.Nil(t, resp)
+
+	assertAllocationFailed(t, fakeClient)
 }
