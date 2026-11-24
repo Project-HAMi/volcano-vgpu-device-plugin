@@ -92,8 +92,8 @@ func getOldestPod(pods []v1.Pod, nodename string, gpuAmount int) (*v1.Pod, error
 		if phase := pod.Annotations[DeviceBindPhase]; phase == DeviceBindSuccess || phase == DeviceBindFailed {
 			continue
 		}
-		// Need to ensure that the pod being handled has the same number of devices as the node requesting
-		_, deviceCount := DecodePodDevices(pod.Annotations[AssignedIDsToAllocateAnnotations])
+		// Kubelet asks per container, so match the next container still waiting for devices.
+		deviceCount := nextDeviceCount(pod.Annotations[AssignedIDsToAllocateAnnotations])
 		klog.V(3).Infof("GetOldestPod -- Pod name: %s, Kubelet request gpuAmount %d, "+
 			"pod request gpuAmount %d", pod.Name, gpuAmount, deviceCount)
 		if deviceCount != gpuAmount {
@@ -117,6 +117,17 @@ func getOldestPod(pods []v1.Pod, nodename string, gpuAmount int) (*v1.Pod, error
 	klog.Infof("GetOldestPod -- oldest pod %#v, predicate time: %#v", oldest.Name,
 		oldest.Annotations[AssignedTimeAnnotations])
 	return oldest, nil
+}
+
+// nextDeviceCount returns the device count of the first container entry not yet
+// allocated. Allocate erases entries in container order, as kubelet requests them.
+func nextDeviceCount(annotation string) int {
+	for _, s := range strings.Split(annotation, ";") {
+		if _, n := DecodeContainerDevices(s); n > 0 {
+			return n
+		}
+	}
+	return 0
 }
 
 // podOrderLess orders by predicate time, then bind time, oldest first.
