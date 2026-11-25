@@ -325,6 +325,17 @@ func start(c *cli.Context, o *options) error {
 
 	util.LoadNvidiaConfig(c)
 
+	driver, ret := config.Nvml().SystemGetDriverVersion()
+	if ret != nvml.SUCCESS {
+		klog.Warningf("Cannot query NVIDIA driver version: %v", ret)
+	}
+	regions, probeErr := info.NvidiaVidmemCapacity(os.DirFS("/host-cgroup"))
+	if probeErr != nil {
+		klog.Warningf("Cannot read NVIDIA dmem regions: %v", probeErr)
+	} else {
+		klog.InfoS("NVIDIA backend probe", "driverVersion", driver, "vidmemCapacityBytes", regions, "operatingMode", config.Mode)
+	}
+
 	var started bool
 	var restartTimeout <-chan time.Time
 	var plugins []plugin.Interface

@@ -222,6 +222,9 @@ spec:
             drop: ["ALL"]
             add: ["SYS_ADMIN"]
         volumeMounts:
+        - name: host-cgroup
+          mountPath: /host-cgroup
+          readOnly: true
         - name: deviceconfig
           mountPath: /config
         - name: device-plugin
@@ -269,6 +272,10 @@ spec:
         - name: lib
           mountPath: /usr/local/vgpu
       volumes:
+      - name: host-cgroup
+        hostPath:
+          path: /sys/fs/cgroup
+          type: Directory
       - name: deviceconfig
         configMap:
           name: volcano-vgpu-node-config
