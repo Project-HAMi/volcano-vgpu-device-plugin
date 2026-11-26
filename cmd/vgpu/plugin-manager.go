@@ -66,6 +66,7 @@ func GetPlugins(ctx context.Context, infolib info.Interface, nvmllib nvml.Interf
 	plugins, err := plugin.New(ctx, infolib, nvmllib, devicelib,
 		plugin.WithCDIHandler(cdiHandler),
 		plugin.WithConfig(config),
+		plugin.WithAllocationBackend(o.backend),
 		plugin.WithDeviceListStrategies(deviceListStrategies),
 		plugin.WithFailOnInitError(*config.Flags.FailOnInitError),
 		plugin.WithImexChannels(imexChannels),

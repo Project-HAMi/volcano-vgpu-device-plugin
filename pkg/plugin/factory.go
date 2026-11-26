@@ -32,6 +32,7 @@ import (
 )
 
 type options struct {
+	backend   AllocationBackend
 	infolib   info.Interface
 	nvmllib   nvml.Interface
 	devicelib device.Interface
