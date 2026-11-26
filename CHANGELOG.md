@@ -9,10 +9,6 @@ Add the plugin and chart summaries in the release pull request before tagging.
 The [release procedure](CONTRIBUTING.md#preparing-a-release) describes the
 required updates; publishing workflows verify the corresponding entries.
 
-Only the latest released version receives security fixes. Images up to and
-including v1.12.0 are unsigned. See [SECURITY.md](SECURITY.md) for the support
-policy and image verification instructions.
-
 ## Helm chart 1.13.0
 
 - Publishes the chart for the v1.13.0 device plugin and monitor images.

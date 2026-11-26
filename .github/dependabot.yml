@@ -16,7 +16,3 @@ updates:
     directory: /docker
     schedule:
       interval: weekly
-  - package-ecosystem: pip
-    directory: /hack/release-notes
-    schedule:
-      interval: weekly

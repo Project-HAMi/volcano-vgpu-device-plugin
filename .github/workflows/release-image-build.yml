@@ -34,14 +34,6 @@ jobs:
       with:
         submodules: true
         persist-credentials: false
-    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-      with:
-        python-version: '3.12'
-    - name: Install release-notes checker
-      run: |
-        python3 -m venv "${RUNNER_TEMP}/release-notes-venv"
-        "${RUNNER_TEMP}/release-notes-venv/bin/python" -m pip install --require-hashes -r hack/release-notes/requirements.txt
-        echo "${RUNNER_TEMP}/release-notes-venv/bin" >> "${GITHUB_PATH}"
     - name: Verify release notes
       run: python3 hack/verify-release-notes.py --kind plugin --version "${GITHUB_REF_NAME}"
     - name: Install Go

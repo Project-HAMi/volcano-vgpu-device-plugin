@@ -48,9 +48,7 @@ cosign verify docker.io/projecthami/volcano-vgpu-device-plugin:latest \
 Go dependencies are declared in `go.mod` and pinned in `go.sum`. The in-container
 library comes from the `libvgpu` git submodule, pinned to a HAMi-core commit.
 Dependabot opens update pull requests for Go modules, GitHub Actions and the
-Docker base image every week. The CI-only CommonMark parser and its dependency
-are pinned by version and hash in `hack/release-notes/requirements.txt`, with
-weekly Dependabot updates for pip. Dependabot alerts provide dependency scanning
+Docker base image every week, and Dependabot alerts provide dependency scanning
 (SCA) for the default branch.
 
 - Vulnerabilities rated critical or high in a dependency must be fixed, or the

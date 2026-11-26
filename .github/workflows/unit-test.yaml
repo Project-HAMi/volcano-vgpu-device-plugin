@@ -20,14 +20,8 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: '3.12'
-      - name: Install release-notes checker
-        run: |
-          python3 -m venv "${RUNNER_TEMP}/release-notes-venv"
-          "${RUNNER_TEMP}/release-notes-venv/bin/python" -m pip install --require-hashes -r hack/release-notes/requirements.txt
-          echo "${RUNNER_TEMP}/release-notes-venv/bin" >> "${GITHUB_PATH}"
+      - name: Test release-note checker
+        run: python3 tests/releasenotes/test_release_notes.py
       - name: Vet
         run: go vet ./...
       - name: Test
