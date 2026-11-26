@@ -49,6 +49,11 @@ jobs:
 
           echo "version=${chart_version}" >> "${GITHUB_OUTPUT}"
 
+      - name: Verify release notes
+        env:
+          CHART_VERSION: ${{ steps.version.outputs.version }}
+        run: python3 hack/verify-release-notes.py --kind chart --version "${CHART_VERSION}"
+
   helm-release:
     needs: [validate-chart]
     runs-on: ubuntu-latest

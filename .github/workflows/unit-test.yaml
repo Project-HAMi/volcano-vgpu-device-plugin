@@ -20,6 +20,8 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
+      - name: Test release-note checker
+        run: python3 tests/releasenotes/test_release_notes.py
       - name: Vet
         run: go vet ./...
       - name: Test

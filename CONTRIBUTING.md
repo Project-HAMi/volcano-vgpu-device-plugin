@@ -61,6 +61,21 @@ A change to behavior must come with a new or updated unit test that fails
 without the change. A test that no longer matches the code is fixed or removed
 in the same pull request that changes the code, never skipped silently.
 
+## Preparing a release
+
+1. Before tagging, add a `## vX.Y.Z` section to `CHANGELOG.md` with bullets for
+   the changes, upgrade steps and applicable public security fixes. Add a
+   `## Helm chart X.Y.Z` section for the chart version being published.
+2. Run the image and chart release checks with the actual versions:
+
+   ```shell
+   python3 hack/verify-release-notes.py --kind plugin --version vX.Y.Z
+   python3 hack/verify-release-notes.py --kind chart --version X.Y.Z
+   ```
+
+3. Merge the reviewed notes before tagging. Use the corresponding summary
+   and source comparison link in the GitHub release or Helm chart release notes.
+
 ## Hardware validation
 
 Changes affecting device allocation or in-container isolation must be validated
