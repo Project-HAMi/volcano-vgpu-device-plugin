@@ -33,7 +33,7 @@ require (
 require (
 	cyphar.com/go-pathrs v0.2.6 // indirect
 	github.com/Masterminds/semver/v3 v3.5.0 // indirect
-	github.com/NVIDIA/mig-parted v0.15.1 // indirect
+	github.com/NVIDIA/mig-parted v0.15.2 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect

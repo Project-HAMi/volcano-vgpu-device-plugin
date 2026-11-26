@@ -8,8 +8,8 @@ github.com/NVIDIA/go-nvlib v0.13.0 h1:veqetT7p2m+u7yPVAtXQ/nLAqotTdZF1+RzpLd1Yci
 github.com/NVIDIA/go-nvlib v0.13.0/go.mod h1:OmA7IhiBevXA4jUElFQjwmAZJLqrIAofyyn9MvRcz7s=
 github.com/NVIDIA/go-nvml v0.13.4-1 h1:2E7RdOLBxHGSXq8sUw+c5Y0aWmFT7Cj+ZdjYulgUH18=
 github.com/NVIDIA/go-nvml v0.13.4-1/go.mod h1:id63qwpoDWpFXwnwM6psDCSqW4BmNu6mWpr4YeQtPGo=
-github.com/NVIDIA/mig-parted v0.15.1 h1:B+oIEGIKAFQ5jC86sC6tumCUHxcs+GwF64kfXd3Q6hs=
-github.com/NVIDIA/mig-parted v0.15.1/go.mod h1:A9q03qw8t8xro4DRYvXDoB0XZ7GQTyb36D10q5s/9mc=
+github.com/NVIDIA/mig-parted v0.15.2 h1:O+PIMRigDud3wtfwKEl05GKQqxHPu+S0YoIfqxyu8xQ=
+github.com/NVIDIA/mig-parted v0.15.2/go.mod h1:yY7Z5OOWxC1WEIOOq5i4MXMKlwQK7l0i6Sh12Ay/JUw=
 github.com/NVIDIA/nvidia-container-toolkit v1.20.2 h1:ndvx+2v4c8HmRf8A5aONf1+sE32jNDZ7qnIaBEAN5i8=
 github.com/NVIDIA/nvidia-container-toolkit v1.20.2/go.mod h1:q/O2jOSbK8JeHYhHMWwhuwof0yXzs7VE5uVjfSZriDw=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
