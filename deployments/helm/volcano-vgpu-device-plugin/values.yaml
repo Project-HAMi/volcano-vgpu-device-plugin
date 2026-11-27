@@ -155,6 +155,12 @@ tolerations:
 logging:
   klogLevel: "2"
 
+# Kubernetes API client rate limits for the plugin container.
+# All values, including defaults, share one limiter across the clientset.
+kubeAPI:
+  qps: 5
+  burst: 10
+
 cdi:
   enabled: false
   deviceListStrategy: "cdi-annotations"

@@ -5,6 +5,13 @@ dropping one of them. */}}
 {{- if and .Values.nvmlMock.enabled .Values.cdi.enabled }}
 {{- fail "nvmlMock.enabled and cdi.enabled are mutually exclusive; the nvml-mock driver root would override the CDI driver root. Disable one of them." }}
 {{- end }}
+{{/* Older releases may not have kubeAPI when upgraded with --reuse-values. */}}
+{{- $kubeAPI := .Values.kubeAPI | default dict }}
+{{- $burst := get $kubeAPI "burst" }}
+{{/* Values files decode numbers as float64; format exact integral bursts without an exponent. Values outside the safe integer range must be quoted. */}}
+{{- if and (kindIs "float64" $burst) (eq $burst (floor $burst)) (lt $burst 9007199254740992.0) (gt $burst -9007199254740992.0) }}
+{{- $burst = printf "%.0f" $burst }}
+{{- end }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -68,6 +75,11 @@ spec:
           value: {{ .Values.namespace | quote }}
         - name: KLOG_LEVEL
           value: {{ .Values.logging.klogLevel | quote }}
+        # Kubernetes API client-side rate limits for the plugin container.
+        - name: KUBE_API_QPS
+          value: {{ get $kubeAPI "qps" | toString | default "5" | quote }}
+        - name: KUBE_API_BURST
+          value: {{ $burst | toString | default "10" | quote }}
         {{- if .Values.nvmlMock.enabled }}
         - name: NVIDIA_DRIVER_ROOT
           value: {{ .Values.nvmlMock.driverRoot }}
