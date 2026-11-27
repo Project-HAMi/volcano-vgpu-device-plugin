@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -55,7 +56,6 @@ type Manager struct {
 	incompatibleGPUs map[string]bool
 	unhealthyGPUs    atomic.Pointer[map[string]bool]
 	generation       uint64
-	daemonFailures   int
 
 	deviceAllocations atomic.Pointer[map[string]Allocation]
 }
@@ -85,6 +85,14 @@ func WithPolicy(policy MPSV3NodeConfig) ManagerOption {
 
 func WithGeometry(geom map[string]MPSV3Geometry) ManagerOption {
 	return func(m *Manager) { m.geometry = geom }
+}
+
+// Geometry returns the static SM partitioning geometry for a given GPU if configured.
+func (m *Manager) Geometry(gpu string) (MPSV3Geometry, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	geom, ok := m.geometry[gpu]
+	return geom, ok
 }
 
 // NewManager creates a new Manager instance.
@@ -206,12 +214,16 @@ func (m *Manager) Start(ctx context.Context, livePods map[string]bool) (retErr e
 	if !filepath.IsAbs(m.root) || filepath.Clean(m.root) != m.root || m.root == "/" {
 		return fmt.Errorf("MPS root must be an absolute clean dedicated host path: %q", m.root)
 	}
+	resolved, err := m.policy.Resolve()
+	if err != nil {
+		return fmt.Errorf("invalid MPS v3 policy: %w", err)
+	}
+	m.policy = resolved
 	for _, p := range []string{m.root, m.cdiRoot} {
 		if err := os.MkdirAll(p, 0755); err != nil {
 			return err
 		}
 	}
-	var err error
 	m.lock, err = os.OpenFile(filepath.Join(m.root, "manager.lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return err
@@ -246,6 +258,16 @@ func (m *Manager) Recover(ctx context.Context, livePods map[string]bool) error {
 	}
 	if _, err := m.run(ctx, "compute-policy", "get", "timeslice"); err != nil {
 		return fmt.Errorf("cannot connect to externally managed r620 MPS daemon at %s: %w", filepath.Join(m.root, "pipe"), err)
+	}
+	if m.policy.ComputeMode == ComputeModeServerTimeslice {
+		if _, err := m.run(ctx, "compute-policy", "set", "timeslice", m.policy.Timeslice); err != nil {
+			return fmt.Errorf("set MPS timeslice %s: %w", m.policy.Timeslice, err)
+		}
+		if m.policy.TimesliceYieldLevel != nil {
+			if _, err := m.run(ctx, "compute-policy", "set", "timeslice-yield-level", strconv.Itoa(*m.policy.TimesliceYieldLevel)); err != nil {
+				return fmt.Errorf("set MPS timeslice yield level %d: %w", *m.policy.TimesliceYieldLevel, err)
+			}
+		}
 	}
 	names, err := m.serverNamesLocked(ctx)
 	if err != nil {
@@ -310,23 +332,41 @@ func (m *Manager) Ensure(ctx context.Context, a Allocation) (created bool, err e
 		}
 	}
 	if a.ComputeMode != m.policy.ComputeMode {
-		return false, fmt.Errorf("Pod MPS mode %q does not match node mode %q", a.ComputeMode, m.policy.ComputeMode)
+		return false, fmt.Errorf("pod MPS mode %q does not match node mode %q", a.ComputeMode, m.policy.ComputeMode)
 	}
 
 	// Idempotency: reconfirm if matching prepared allocation already exists
 	if old, ok := m.allocations[a.Namespace]; ok {
-		if old.Prepared && !old.CleanupPending && reflect.DeepEqual(old.GPUs, a.GPUs) && old.Percent == a.Percent && old.Memory == a.Memory {
+		if old.Prepared && !old.CleanupPending &&
+			reflect.DeepEqual(old.GPUs, a.GPUs) &&
+			old.Percent == a.Percent &&
+			old.Memory == a.Memory &&
+			old.SMCount == a.SMCount &&
+			reflect.DeepEqual(old.SMPolicy, a.SMPolicy) {
 			return false, m.publishCDILocked(old)
 		}
 		if !old.Prepared || old.CleanupPending {
 			return false, fmt.Errorf("previous MPS allocation %s is incomplete/pending cleanup", a.Namespace)
 		}
+		return false, fmt.Errorf("MPS allocation %s already exists with different limits", a.Namespace)
 	}
 
 	// Validate socket path length: Linux Unix domain socket limit is 108 bytes
 	socketPath := filepath.Join(m.root, "pipe", a.Server, a.Namespace, "control")
 	if len(socketPath) >= 104 {
 		return false, fmt.Errorf("MPS namespace socket path too long (%d chars): %s", len(socketPath), socketPath)
+	}
+
+	// Validate SM policy against known GPU geometries before persisting intent
+	if a.SMCount > 0 {
+		for _, gpu := range a.GPUs {
+			geom, ok := m.geometry[gpu]
+			if ok {
+				if err := a.SMPolicy.Validate(geom, a.SMCount); err != nil {
+					return false, fmt.Errorf("invalid MPS v3 SM policy on %s: %w", gpu, err)
+				}
+			}
+		}
 	}
 
 	// Persist intent before executing daemon mutations
@@ -340,24 +380,42 @@ func (m *Manager) Ensure(ctx context.Context, a Allocation) (created bool, err e
 
 	servers, err := m.serverNamesLocked(ctx)
 	if err != nil {
-		return true, err
+		delete(m.allocations, a.Namespace)
+		_ = m.save()
+		return false, err
 	}
 	serverExists := slices.Contains(servers, a.Server)
+
+	rollback := func(origErr error) (bool, error) {
+		_, _ = m.run(ctx, "namespace", "delete", a.Namespace, "--server="+a.Server)
+		if a.SMCount > 0 {
+			for _, gpu := range a.GPUs {
+				_, _ = m.run(ctx, "sm-partition", "delete", a.PartitionName(gpu), "--server="+a.Server, "--device="+gpu)
+			}
+		}
+		if !serverExists {
+			_, _ = m.run(ctx, "server", "delete", a.Server)
+		}
+		delete(m.allocations, a.Namespace)
+		_ = m.save()
+		return false, origErr
+	}
+
 	if !serverExists {
 		if _, err := m.run(ctx, "server", "create", a.Server, "--uid=0", "--locality-domains=false", "--allowed-devices="+strings.Join(a.GPUs, ",")); err != nil {
-			return true, err
+			return rollback(err)
 		}
 	}
 
 	if a.ComputeMode == ComputeModeServerTimeslice {
 		if _, err := m.run(ctx, "server", "set", a.Server, "--timeslice-pct="+strconv.FormatInt(a.Percent, 10)); err != nil {
-			return true, err
+			return rollback(err)
 		}
 	}
 
 	// Create namespace
 	if _, err := m.run(ctx, "namespace", "create", a.Namespace, "--server="+a.Server); err != nil {
-		return true, err
+		return rollback(err)
 	}
 
 	activePercent := a.Percent
@@ -365,7 +423,7 @@ func (m *Manager) Ensure(ctx context.Context, a Allocation) (created bool, err e
 		activePercent = 100
 	}
 	if _, err := m.run(ctx, "namespace", "set", a.Namespace, "--server="+a.Server, "--active-thread-percentage="+strconv.FormatInt(activePercent, 10)); err != nil {
-		return true, err
+		return rollback(err)
 	}
 
 	// Configure static SM partitions if requested
@@ -374,7 +432,7 @@ func (m *Manager) Ensure(ctx context.Context, a Allocation) (created bool, err e
 			geom := m.geometry[gpu]
 			chunks, remainder, pErr := geom.Partition(a.SMCount)
 			if pErr != nil {
-				return true, pErr
+				return rollback(pErr)
 			}
 			partName := a.PartitionName(gpu)
 			args := []string{
@@ -387,10 +445,10 @@ func (m *Manager) Ensure(ctx context.Context, a Allocation) (created bool, err e
 				args = append(args, "--max-chunks="+a.SMPolicy.MaxChunks)
 			}
 			if _, err := m.run(ctx, args...); err != nil {
-				return true, err
+				return rollback(err)
 			}
 			if _, err := m.run(ctx, "namespace", "set", a.Namespace, "--server="+a.Server, "--device="+gpu, "--sm-partition="+partName); err != nil {
-				return true, err
+				return rollback(err)
 			}
 		}
 	}
@@ -398,10 +456,14 @@ func (m *Manager) Ensure(ctx context.Context, a Allocation) (created bool, err e
 	a.Prepared = true
 	m.allocations[a.Namespace] = a
 	if err := m.publishCDILocked(a); err != nil {
-		return true, err
+		a.Prepared = false
+		m.allocations[a.Namespace] = a
+		return rollback(err)
 	}
 	if err := m.save(); err != nil {
-		return true, err
+		a.Prepared = false
+		m.allocations[a.Namespace] = a
+		return rollback(err)
 	}
 	return true, nil
 }
@@ -420,12 +482,23 @@ func (m *Manager) releaseLocked(ctx context.Context, key string) error {
 	}
 	m.generation++
 	servers, err := m.serverNamesLocked(ctx)
-	if err == nil && slices.Contains(servers, a.Server) {
+	if err != nil {
+		a.CleanupPending = true
+		m.allocations[key] = a
+		_ = m.save()
+		return fmt.Errorf("query servers for release: %w", err)
+	}
+	var cleanupErr error
+	if slices.Contains(servers, a.Server) {
 		// Non-forced deletion: daemon protects active clients
-		_, _ = m.run(ctx, "namespace", "delete", a.Namespace, "--server="+a.Server)
+		if _, err := m.run(ctx, "namespace", "delete", a.Namespace, "--server="+a.Server); err != nil && !strings.Contains(err.Error(), "not found") {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("delete namespace %s: %w", a.Namespace, err))
+		}
 		if a.SMCount > 0 {
 			for _, gpu := range a.GPUs {
-				_, _ = m.run(ctx, "sm-partition", "delete", a.PartitionName(gpu), "--server="+a.Server, "--device="+gpu)
+				if _, err := m.run(ctx, "sm-partition", "delete", a.PartitionName(gpu), "--server="+a.Server, "--device="+gpu); err != nil && !strings.Contains(err.Error(), "not found") {
+					cleanupErr = errors.Join(cleanupErr, fmt.Errorf("delete partition %s on %s: %w", a.PartitionName(gpu), gpu, err))
+				}
 			}
 		}
 		// If last allocation on this server, delete server
@@ -437,8 +510,16 @@ func (m *Manager) releaseLocked(ctx context.Context, key string) error {
 			}
 		}
 		if last {
-			_, _ = m.run(ctx, "server", "delete", a.Server)
+			if _, err := m.run(ctx, "server", "delete", a.Server); err != nil && !strings.Contains(err.Error(), "not found") {
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("delete server %s: %w", a.Server, err))
+			}
 		}
+	}
+	if cleanupErr != nil {
+		a.CleanupPending = true
+		m.allocations[key] = a
+		_ = m.save()
+		return cleanupErr
 	}
 	_ = m.removeCDILocked(a.Namespace)
 	delete(m.allocations, key)

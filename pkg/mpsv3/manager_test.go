@@ -18,6 +18,7 @@ package mpsv3
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -27,9 +28,10 @@ import (
 )
 
 type mockDaemonRunner struct {
-	mu       sync.Mutex
-	commands [][]string
-	servers  []string
+	mu           sync.Mutex
+	commands     [][]string
+	servers      []string
+	failContains string
 }
 
 func newMockDaemonRunner() *mockDaemonRunner {
@@ -42,6 +44,10 @@ func (m *mockDaemonRunner) Run(ctx context.Context, args ...string) (string, err
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.commands = append(m.commands, args)
+
+	if m.failContains != "" && strings.Contains(strings.Join(args, " "), m.failContains) {
+		return "", fmt.Errorf("injected error for %s", m.failContains)
+	}
 
 	if len(args) == 0 {
 		return "", nil
@@ -258,5 +264,99 @@ func TestManagerSocketPathLimit(t *testing.T) {
 	_, err := mgr.Ensure(context.Background(), alloc)
 	if err == nil || !strings.Contains(err.Error(), "socket path too long") {
 		t.Fatalf("expected socket path too long error, got: %v", err)
+	}
+}
+
+func TestManagerRollbackOnFailure(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mp")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(tmpDir) })
+	root := filepath.Join(tmpDir, "mps-v3")
+	cdiRoot := filepath.Join(tmpDir, "cdi")
+
+	mock := newMockDaemonRunner()
+	mock.failContains = "namespace create"
+
+	mgr := NewManager(
+		WithRoot(root),
+		WithCDIRoot(cdiRoot),
+		WithCommandRunner(mock.Run),
+		WithPolicy(MPSV3NodeConfig{ComputeMode: ComputeModeNamespaceCap}),
+	)
+	ctx := context.Background()
+	_ = mgr.Start(ctx, map[string]bool{})
+	defer mgr.Close()
+
+	alloc := Allocation{
+		ComputeMode: ComputeModeNamespaceCap,
+		PodUID:      "pod-fail",
+		Container:   "ctr-fail",
+		GPUs:        []string{"GPU-1"},
+		Memory:      1024,
+		Percent:     50,
+	}
+	alloc.Server = alloc.ServerName()
+	alloc.Namespace = HashName("ns", alloc.PodUID+"/"+alloc.Container)
+
+	_, err = mgr.Ensure(ctx, alloc)
+	if err == nil {
+		t.Fatalf("expected Ensure to fail with injected namespace create error")
+	}
+
+	// Verify rollback cleaned up in-memory and persisted allocations
+	if len(mgr.allocations) != 0 {
+		t.Errorf("expected 0 allocations after rollback, got %d", len(mgr.allocations))
+	}
+}
+
+func TestManagerReleasePendingCleanup(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mp")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(tmpDir) })
+	root := filepath.Join(tmpDir, "mps-v3")
+	cdiRoot := filepath.Join(tmpDir, "cdi")
+
+	mock := newMockDaemonRunner()
+	mgr := NewManager(
+		WithRoot(root),
+		WithCDIRoot(cdiRoot),
+		WithCommandRunner(mock.Run),
+		WithPolicy(MPSV3NodeConfig{ComputeMode: ComputeModeNamespaceCap}),
+	)
+	ctx := context.Background()
+	_ = mgr.Start(ctx, map[string]bool{})
+	defer mgr.Close()
+
+	alloc := Allocation{
+		ComputeMode: ComputeModeNamespaceCap,
+		PodUID:      "pod-rel",
+		Container:   "ctr-rel",
+		GPUs:        []string{"GPU-1"},
+		Memory:      1024,
+		Percent:     50,
+	}
+	alloc.Server = alloc.ServerName()
+	alloc.Namespace = HashName("ns", alloc.PodUID+"/"+alloc.Container)
+
+	_, err = mgr.Ensure(ctx, alloc)
+	if err != nil {
+		t.Fatalf("Ensure failed: %v", err)
+	}
+
+	// Inject error on server delete during Release
+	mock.failContains = "server delete"
+	err = mgr.Release(ctx, alloc.Namespace)
+	if err == nil {
+		t.Fatalf("expected Release to fail with injected server delete error")
+	}
+
+	// Verify allocation was marked CleanupPending = true
+	saved, ok := mgr.allocations[alloc.Namespace]
+	if !ok || !saved.CleanupPending {
+		t.Errorf("expected allocation to remain with CleanupPending=true, got ok=%v, saved=%+v", ok, saved)
 	}
 }

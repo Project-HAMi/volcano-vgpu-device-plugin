@@ -86,12 +86,6 @@ func (a *Allocator) Allocate(ctx context.Context, pod *v1.Pod, ctr v1.Container,
 		return fmt.Errorf("invalid MPS v3 request annotations: %w", err)
 	}
 
-	percent := int64(devs[0].Usedcores)
-	if percent <= 0 {
-		percent = 100
-	}
-	memMiB := int64(devs[0].Usedmem)
-
 	var gpus []string
 	for _, d := range devs {
 		if !strings.HasPrefix(d.UUID, "GPU-") {
@@ -102,6 +96,21 @@ func (a *Allocator) Allocate(ctx context.Context, pod *v1.Pod, ctr v1.Container,
 		}
 	}
 	slices.Sort(gpus)
+
+	percent := int64(devs[0].Usedcores)
+	if percent <= 0 {
+		percent = 100
+	}
+	if sms > 0 && len(gpus) > 0 {
+		if geom, ok := a.manager.Geometry(gpus[0]); ok {
+			pct, pErr := geom.Percent(sms)
+			if pErr == nil {
+				percent = pct
+			}
+		}
+	}
+
+	memMiB := int64(devs[0].Usedmem)
 
 	alloc := Allocation{
 		ComputeMode: mode,

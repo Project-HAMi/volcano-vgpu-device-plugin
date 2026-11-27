@@ -121,7 +121,9 @@ func atomicMPSFile(path string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	tmpName := f.Name()
-	defer os.Remove(tmpName)
+	defer func() {
+		_ = os.Remove(tmpName)
+	}()
 
 	if err = f.Chmod(mode); err != nil {
 		_ = f.Close()
@@ -145,6 +147,8 @@ func atomicMPSFile(path string, data []byte, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer d.Close()
+	defer func() {
+		_ = d.Close()
+	}()
 	return d.Sync()
 }

@@ -147,3 +147,58 @@ func TestAllocatorRejectsReservedContainerEnv(t *testing.T) {
 		t.Fatalf("expected Allocate to fail when container sets reserved MPS env var")
 	}
 }
+
+func TestAllocatorStaticSMPercentDerivation(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mp")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(tmpDir) })
+	root := filepath.Join(tmpDir, "mps-v3")
+	cdiRoot := filepath.Join(tmpDir, "cdi")
+
+	mock := newMockDaemonRunner()
+	geom := map[string]MPSV3Geometry{
+		"GPU-1": {SMs: 108, Chunk: 2},
+	}
+	mgr := NewManager(
+		WithRoot(root),
+		WithCDIRoot(cdiRoot),
+		WithCommandRunner(mock.Run),
+		WithGeometry(geom),
+	)
+	ctx := context.Background()
+	_ = mgr.Start(ctx, map[string]bool{})
+	defer mgr.Close()
+
+	allocator := NewAllocator(mgr)
+
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-pod-sm",
+			UID:  "uid-sm-123",
+			Annotations: map[string]string{
+				MPSV3SMCountAnnotation: "10",
+			},
+		},
+	}
+	ctr := v1.Container{Name: "ctr-sm"}
+	devs := util.ContainerDevices{
+		{UUID: "GPU-1", Usedmem: 2048, Usedcores: 50},
+	}
+	response := &pluginapi.ContainerAllocateResponse{
+		Envs: make(map[string]string),
+	}
+
+	err = allocator.Allocate(ctx, pod, ctr, devs, response)
+	if err != nil {
+		t.Fatalf("Allocate failed: %v", err)
+	}
+
+	// Verify percent derived from geometry with ceiling division: (10*100 + 108 - 1) / 108 = 10
+	ns := HashName("ns", "uid-sm-123/ctr-sm")
+	alloc := mgr.allocations[ns]
+	if alloc.Percent != 10 {
+		t.Errorf("expected Percent to be 10, got %d", alloc.Percent)
+	}
+}
