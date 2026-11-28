@@ -16,5 +16,6 @@ LICENSE
 .vscode/
 *.iml
 
-# Ignore Docker-specific files
-docker/
+# Include the runtime hook installer, but not other Docker-specific files.
+docker/*
+!docker/vgpu-init.sh
