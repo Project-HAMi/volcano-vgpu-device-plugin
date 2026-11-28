@@ -100,6 +100,9 @@ spec:
             drop: ["ALL"]
             add: ["SYS_ADMIN"]
         volumeMounts:
+        - name: host-cgroup
+          mountPath: /host-cgroup
+          readOnly: true
         - name: deviceconfig
           mountPath: /config
         - name: device-plugin
@@ -164,6 +167,10 @@ spec:
           mountPath: /usr/local/vgpu
       {{- end }}
       volumes:
+      - name: host-cgroup
+        hostPath:
+          path: {{ .Values.hostPaths.sys }}/fs/cgroup
+          type: Directory
       {{- if and .Values.nodeConfig.enabled .Values.nodeConfig.configs }}
       - name: deviceconfig
         configMap:
