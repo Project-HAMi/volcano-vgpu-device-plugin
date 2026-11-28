@@ -50,7 +50,7 @@ spec:
         lifecycle:
           postStart:
             exec:
-              command: ["/bin/sh", "-c", "cp -f /k8s-vgpu/lib/nvidia/* /usr/local/vgpu/"]
+              command: ["/bin/sh", "/k8s-vgpu/bin/vgpu-init.sh"]
         env:
         - name: NODE_NAME
           valueFrom:

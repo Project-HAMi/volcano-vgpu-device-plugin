@@ -56,5 +56,6 @@ COPY --from=builder /go/src/volcano.sh/devices/volcano-vgpu-monitor /usr/bin/vol
 COPY --from=builder /go/bin/nvidia-mig-parted /usr/bin/nvidia-mig-parted
 COPY --from=builder /go/src/volcano.sh/devices/lib/nvidia/ld.so.preload /k8s-vgpu/lib/nvidia/
 COPY --from=nvidia_builder /libvgpu/build/libvgpu.so /k8s-vgpu/lib/nvidia/
+COPY docker/vgpu-init.sh /k8s-vgpu/bin/vgpu-init.sh
 
 ENTRYPOINT ["volcano-vgpu-device-plugin"]
