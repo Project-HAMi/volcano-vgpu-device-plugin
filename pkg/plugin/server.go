@@ -78,7 +78,6 @@ func checkDeviceEntries(count int, factor uint) error {
 
 // nvidiaDevicePlugin implements the Kubernetes device plugin API
 type nvidiaDevicePlugin struct {
-	backend AllocationBackend
 	pluginapi.UnimplementedDevicePluginServer
 	ctx                  context.Context
 	rm                   rm.ResourceManager
@@ -116,7 +115,6 @@ func (o *options) devicePluginForResource(ctx context.Context, resourceManager r
 	}
 
 	plugin := nvidiaDevicePlugin{
-		backend:              o.backend,
 		ctx:                  ctx,
 		rm:                   resourceManager,
 		config:               o.config,
@@ -451,12 +449,6 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 				util.PodAllocationFailed(nodeName, current)
 				return nil, fmt.Errorf("failed to get allocate response: %v", err)
 			}
-			if plugin.backend != nil {
-				if err := plugin.backend.Allocate(ctx, current, currentCtr, devreq, response); err != nil {
-					util.PodAllocationFailed(nodeName, current)
-					return nil, fmt.Errorf("allocate with %s: %w", plugin.backend.Mode(), err)
-				}
-			}
 			err = util.EraseNextDeviceTypeFromAnnotation(util.NvidiaGPUDevice, *current)
 			if err != nil {
 				klog.Errorln("Erase annotation failed", err.Error())
@@ -464,7 +456,7 @@ func (plugin *nvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.
 				return &pluginapi.AllocateResponse{}, err
 			}
 
-			if plugin.backend == nil && config.Mode != "mig" {
+			if config.Mode != "mig" {
 				for i, dev := range devreq {
 					limitKey := fmt.Sprintf("CUDA_DEVICE_MEMORY_LIMIT_%v", i)
 					response.Envs[limitKey] = fmt.Sprintf("%vm", dev.Usedmem*int32(config.GPUMemoryFactor))

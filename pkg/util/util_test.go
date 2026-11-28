@@ -20,12 +20,8 @@ import (
 	"context"
 	"errors"
 	"math"
-	"os"
-	"path/filepath"
-
 	"reflect"
 	"testing"
-	"volcano.sh/k8s-device-plugin/pkg/config"
 
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -332,27 +328,5 @@ func TestGetNextDeviceRequestSkipsNonVGPUContainers(t *testing.T) {
 		if ctr.Name != tt.want || len(devs) != 1 || devs[0].UUID != tt.wantUUID {
 			t.Errorf("%q: got container %q devices %v, want %q with %s", tt.annotation, ctr.Name, devs, tt.want, tt.wantUUID)
 		}
-	}
-}
-
-func TestNodeOperatingModePin(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "config.json")
-	data := []byte(`{"nodeconfig":[{"name":"pinned","operatingmode":"hami-core"},{"name":"unpinned"},{"name":"mig-node","operatingmode":"mig"}]}`)
-	if err := os.WriteFile(file, data, 0600); err != nil {
-		t.Fatal(err)
-	}
-	old := config.Mode
-	t.Cleanup(func() { config.Mode = old })
-	for _, tc := range []struct{ node, pin string }{{"pinned", "hami-core"}, {"unpinned", ""}, {"mig-node", "mig"}, {"unknown", ""}} {
-		t.Run(tc.node, func(t *testing.T) {
-			t.Setenv("NODE_NAME", tc.node)
-			var cfg config.NvidiaConfig
-			if err := readFromConfigFile(file, &cfg); err != nil {
-				t.Fatal(err)
-			}
-			if cfg.OperatingMode != tc.pin {
-				t.Fatalf("got pin %q, want %q", cfg.OperatingMode, tc.pin)
-			}
-		})
 	}
 }

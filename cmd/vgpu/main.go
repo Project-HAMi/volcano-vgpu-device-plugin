@@ -57,7 +57,6 @@ func init() {
 }
 
 type options struct {
-	backend         plugin.AllocationBackend
 	flags           []cli.Flag
 	configFile      string
 	kubeletSocket   string
@@ -324,7 +323,7 @@ func start(c *cli.Context, o *options) error {
 	klog.Info("Starting OS watcher.")
 	sigs := watch.Signals(syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
-	nodeConfig := util.LoadNvidiaConfig(c)
+	util.LoadNvidiaConfig(c)
 
 	driver, ret := config.Nvml().SystemGetDriverVersion()
 	if ret != nvml.SUCCESS {
@@ -332,18 +331,10 @@ func start(c *cli.Context, o *options) error {
 	}
 	regions, probeErr := info.NvidiaVidmemCapacity(os.DirFS("/host-cgroup"))
 	if probeErr != nil {
-		klog.Warningf("Cannot read NVIDIA dmem regions: %v", probeErr)
+		klog.Warningf("Cannot read NVIDIA dmem regions from /host-cgroup: %v", probeErr)
+	} else {
+		klog.InfoS("NVIDIA backend probe", "driverVersion", driver, "vidmemCapacityBytes", regions, "operatingMode", config.Mode)
 	}
-	host := plugin.HostCapabilities{DriverVersion: driver, VidmemCapacityBytes: regions}
-	// Add candidates here as their allocation paths become available.
-	mode, backend, err := plugin.SelectBackend(nodeConfig.OperatingMode, host, ret == nvml.SUCCESS && probeErr == nil)
-	if err != nil {
-		return err
-	}
-	config.Mode = mode
-	o.backend = backend
-	klog.InfoS("Selected NVIDIA backend", "operatingMode", mode, "configuredMode", nodeConfig.OperatingMode,
-		"driverVersion", driver, "vidmemCapacityBytes", regions)
 
 	var started bool
 	var restartTimeout <-chan time.Time

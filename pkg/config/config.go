@@ -24,8 +24,6 @@ import (
 )
 
 type NvidiaConfig struct {
-	// OperatingMode is the pin from the matching node entry in config.json.
-	OperatingMode                string                 `json:"-" yaml:"-"`
 	ResourceCountName            string                 `json:"resourceCountName" yaml:"resourceCountName"`
 	ResourceMemoryName           string                 `json:"resourceMemoryName" yaml:"resourceMemoryName"`
 	ResourceCoreName             string                 `json:"resourceCoreName" yaml:"resourceCoreName"`

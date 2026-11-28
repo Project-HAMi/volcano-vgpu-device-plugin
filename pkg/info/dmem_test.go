@@ -3,6 +3,10 @@
 package info
 
 import (
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"testing/fstest"
@@ -31,5 +35,13 @@ func TestNvidiaVidmemCapacity(t *testing.T) {
 				t.Fatalf("got (%v, %v), want (%v, error=%t)", got, err, tc.want, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestNvidiaVidmemCapacityMissingRoot(t *testing.T) {
+	root := os.DirFS(filepath.Join(t.TempDir(), "missing"))
+	_, err := NvidiaVidmemCapacity(root)
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("missing cgroup root returned %v, want fs.ErrNotExist", err)
 	}
 }

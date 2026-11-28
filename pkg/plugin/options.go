@@ -28,11 +28,6 @@ import (
 // Option is a function that configures a options
 type Option func(*options)
 
-// WithAllocationBackend supplies the selected alternative allocator.
-func WithAllocationBackend(backend AllocationBackend) Option {
-	return func(o *options) { o.backend = backend }
-}
-
 // WithCDIHandler sets the CDI handler for the options
 func WithCDIHandler(handler cdi.Interface) Option {
 	return func(m *options) {

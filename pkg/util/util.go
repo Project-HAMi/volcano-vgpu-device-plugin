@@ -748,7 +748,7 @@ func LoadNvidiaConfig(c *cli.Context) *config.NvidiaConfig {
 	if c.IsSet("gpu-memory-factor") {
 		nvidiaConfig.GPUMemoryFactor = config.GPUMemoryFactor
 	}
-	if err := readFromConfigFile("/config/config.json", &nvidiaConfig); err != nil {
+	if err := readFromConfigFile(&nvidiaConfig); err != nil {
 		klog.InfoS("readFrom device cm error", err.Error())
 	}
 	klog.Infoln("Loaded config=", nvidiaConfig)
@@ -768,9 +768,9 @@ func LoadNvidiaConfig(c *cli.Context) *config.NvidiaConfig {
 	return &nvidiaConfig
 }
 
-func readFromConfigFile(path string, sConfig *config.NvidiaConfig) error {
+func readFromConfigFile(sConfig *config.NvidiaConfig) error {
 	config.Mode = "hami-core"
-	jsonbyte, err := os.ReadFile(path)
+	jsonbyte, err := os.ReadFile("/config/config.json")
 	if err != nil {
 		return err
 	}
@@ -796,7 +796,6 @@ func readFromConfigFile(path string, sConfig *config.NvidiaConfig) error {
 				config.DevicePluginFilterDevice = val.FilterDevice
 			}
 			if len(val.OperatingMode) > 0 {
-				sConfig.OperatingMode = val.OperatingMode
 				config.Mode = val.OperatingMode
 			}
 			klog.Infof("FilterDevice: %v", val.FilterDevice)

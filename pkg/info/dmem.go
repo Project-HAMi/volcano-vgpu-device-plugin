@@ -12,11 +12,15 @@ import (
 
 // NvidiaVidmemCapacity reads the NVIDIA video memory regions registered at the
 // cgroup root. Keys are PCI addresses and capacities are in bytes. An older
-// kernel without dmem.capacity has no regions to report.
+// kernel without dmem.capacity has no regions to report. A missing root
+// directory is reported as an error.
 func NvidiaVidmemCapacity(root fs.FS) (map[string]uint64, error) {
 	data, err := fs.ReadFile(root, "dmem.capacity")
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		// A missing capacity file is expected on older kernels, but the
+		// host cgroup directory must still be accessible.
+		_, rootErr := fs.Stat(root, ".")
+		return nil, rootErr
 	}
 	if err != nil {
 		return nil, err
