@@ -1,5 +1,12 @@
 # Global Config
 
+## Kubernetes API client rate limits
+
+* `KUBE_API_QPS` (`kubeAPI.qps` in Helm): Positive finite QPS for the device plugin's Kubernetes client, default: 5.
+* `KUBE_API_BURST` (`kubeAPI.burst` in Helm): Positive integer burst for the same client, default: 10. Quote values at or above 2^53 in Helm values files to preserve precision.
+
+Invalid values fall back to the defaults with a warning; zero does not disable throttling. The plugin clientset shares one limiter across its API clients, including discovery, even with the default values. Restart the device plugin Pod after changing these values.
+
 ## Device Configs: ConfigMap
 
 **Note:**

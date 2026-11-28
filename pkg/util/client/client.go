@@ -17,14 +17,23 @@ limitations under the License.
 package client
 
 import (
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
+)
+
+const (
+	// Use the client-go REST client defaults for unset or invalid settings.
+	defaultKubeAPIQPS   = rest.DefaultQPS
+	defaultKubeAPIBurst = rest.DefaultBurst
 )
 
 var (
@@ -73,9 +82,58 @@ func NewClient() (kubernetes.Interface, error) {
 			return nil, err
 		}
 	}
+	configureRateLimits(config, os.Getenv)
+
 	KubeClient, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		klog.Errorf("new config error %s", err.Error())
 	}
 	return KubeClient, err
+}
+
+func configureRateLimits(config *rest.Config, getenv func(string) string) {
+	config.QPS, config.Burst = kubeAPIRateLimits(getenv)
+	config.RateLimiter = nil
+	klog.Infof("Kubernetes client rate limits: QPS=%v, Burst=%d", config.QPS, config.Burst)
+}
+
+// kubeAPIRateLimits reads the Kubernetes API client rate limits.
+func kubeAPIRateLimits(getenv func(string) string) (qps float32, burst int) {
+	return parseKubeAPIQPS(getenv("KUBE_API_QPS")), parseKubeAPIBurst(getenv("KUBE_API_BURST"))
+}
+
+// parseKubeAPIQPS returns the default for invalid or unset values.
+func parseKubeAPIQPS(raw string) float32 {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return defaultKubeAPIQPS
+	}
+	qps, err := strconv.ParseFloat(raw, 32)
+	if err != nil {
+		klog.Warningf("Invalid KUBE_API_QPS %q: %v; falling back to default %v", raw, err, defaultKubeAPIQPS)
+		return defaultKubeAPIQPS
+	}
+	if math.IsNaN(qps) || math.IsInf(qps, 0) || qps <= 0 {
+		klog.Warningf("Invalid KUBE_API_QPS %q: must be a positive finite number; falling back to default %v", raw, defaultKubeAPIQPS)
+		return defaultKubeAPIQPS
+	}
+	return float32(qps)
+}
+
+// parseKubeAPIBurst returns the default for invalid or unset values.
+func parseKubeAPIBurst(raw string) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return defaultKubeAPIBurst
+	}
+	burst, err := strconv.Atoi(raw)
+	if err != nil {
+		klog.Warningf("Invalid KUBE_API_BURST %q: %v; falling back to default %d", raw, err, defaultKubeAPIBurst)
+		return defaultKubeAPIBurst
+	}
+	if burst <= 0 {
+		klog.Warningf("Invalid KUBE_API_BURST %q: must be positive; falling back to default %d", raw, defaultKubeAPIBurst)
+		return defaultKubeAPIBurst
+	}
+	return burst
 }
